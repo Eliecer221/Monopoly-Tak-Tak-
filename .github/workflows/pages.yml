@@ -16,6 +16,10 @@ concurrency:
 
 jobs:
   deploy:
+    # GitHub Pages no está disponible en repositorios privados con plan gratuito.
+    # En un repositorio privado el trabajo se omite en vez de fallar; al hacerlo
+    # público se publica solo.
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
