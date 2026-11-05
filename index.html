@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0b1020" />
+<title>Monopoly TAK TAK</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%A9%3C/text%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">🎩</span>
+      <div class="brand-text">
+        <h1>MONOPOLY <span class="tak">TAK TAK</span></h1>
+        <p>Compra, construye y domina la ciudad</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-rules" class="ghost-btn" type="button">Reglas</button>
+      <button id="btn-save" class="ghost-btn" type="button">Guardar</button>
+      <button id="btn-load" class="ghost-btn" type="button">Cargar</button>
+      <button id="btn-new" class="ghost-btn danger" type="button">Nueva partida</button>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <section class="board-wrap">
+      <div id="board" class="board" aria-label="Tablero de Monopoly TAK TAK"></div>
+    </section>
+
+    <aside class="sidebar">
+      <div class="turn-banner" id="turn-banner">
+        <span class="turn-label">Turno</span>
+        <span class="turn-name" id="turn-name">—</span>
+      </div>
+
+      <div class="dice-panel">
+        <div class="dice" id="die1">🎲</div>
+        <div class="dice" id="die2">🎲</div>
+        <div class="dice-total" id="dice-total">—</div>
+      </div>
+
+      <div class="actions" id="actions"></div>
+
+      <div class="players" id="players"></div>
+
+      <div class="log-panel">
+        <div class="panel-head">
+          <h2>Registro</h2>
+          <button id="btn-clear-log" class="mini-btn" type="button">Limpiar</button>
+        </div>
+        <ul id="log" class="log"></ul>
+      </div>
+    </aside>
+  </main>
+</div>
+
+<!-- Pantalla de configuración -->
+<div class="overlay show" id="setup-overlay">
+  <div class="modal setup">
+    <h2 class="modal-title">Monopoly <span class="tak">TAK TAK</span></h2>
+    <p class="modal-sub">Configura la partida. Juega contra la máquina o con amigos en el mismo dispositivo.</p>
+
+    <label class="field">
+      <span>Número de jugadores</span>
+      <div class="segmented" id="player-count">
+        <button type="button" data-count="2" class="active">2</button>
+        <button type="button" data-count="3">3</button>
+        <button type="button" data-count="4">4</button>
+      </div>
+    </label>
+
+    <div class="player-config" id="player-config"></div>
+
+    <label class="field">
+      <span>Dinero inicial</span>
+      <div class="segmented" id="start-money">
+        <button type="button" data-money="1000">1.000</button>
+        <button type="button" data-money="1500" class="active">1.500</button>
+        <button type="button" data-money="2500">2.500</button>
+      </div>
+    </label>
+
+    <div class="modal-actions">
+      <button id="btn-start" class="primary-btn" type="button">¡Empezar partida!</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal genérico -->
+<div class="overlay" id="modal-overlay">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<!-- Reglas -->
+<div class="overlay" id="rules-overlay">
+  <div class="modal rules">
+    <h2 class="modal-title">Reglas rápidas</h2>
+    <ul class="rules-list">
+      <li><strong>Objetivo:</strong> dejar en bancarrota al resto de jugadores.</li>
+      <li><strong>Salida:</strong> cobra <em>$200</em> cada vez que pasas por SALIDA.</li>
+      <li><strong>Propiedades:</strong> si caes en una libre puedes comprarla; si es de otro, pagas alquiler.</li>
+      <li><strong>Grupos de color:</strong> con el grupo completo, el alquiler se duplica (sin casas) y puedes construir.</li>
+      <li><strong>Construir:</strong> solo en grupos completos y de forma equilibrada (sin saltos de más de 1 casa).</li>
+      <li><strong>Estaciones:</strong> alquiler $25 / $50 / $100 / $200 según cuántas poseas.</li>
+      <li><strong>Servicios:</strong> alquiler 4× los dados (10× si posees ambos).</li>
+      <li><strong>Hipoteca:</strong> recibes la mitad del precio; recuperarla cuesta +10% de interés.</li>
+      <li><strong>Cárcel:</strong> pagas $50, usas una carta, o sacas dobles. Tras 3 turnos debes pagar.</li>
+      <li><strong>Dobles:</strong> sacar dobles repite turno. Tres dobles seguidos te llevan a la cárcel.</li>
+    </ul>
+    <div class="modal-actions">
+      <button class="primary-btn" type="button" data-close>Entendido</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
