@@ -680,7 +680,7 @@ export class UI {
         players: this.game.players.length,
       })
         .then(() => (status.textContent = "Puntuación enviada a la clasificación."))
-        .catch(() => (status.textContent = "No se pudo enviar la puntuación."))
+        .catch(() => (status.textContent = "Clasificación global no disponible en esta versión."))
         .finally(() => this.renderLeaderboard(board));
     }
 
