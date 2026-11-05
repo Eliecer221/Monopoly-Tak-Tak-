@@ -53,13 +53,17 @@ También puedes publicarlo como sitio estático en GitHub Pages sin cambios.
 El motor es agnóstico de la interfaz y se prueba de forma headless:
 
 ```bash
-npm test
+npm test          # simulaciones headless del motor
+npm install --no-save jsdom && npm run test:ui   # interfaz sobre jsdom
 ```
 
-La suite juega 60 partidas completas con IA (verificando invariantes: dinero no negativo,
-propiedades sin duplicados, construcciones equilibradas), ejercita los caminos de decisión
-humanos (tiradas, compras, subastas, cárcel, recaudación y tratos) y valida alquileres,
-hipotecas y bancarrota.
+La suite del motor juega 60 partidas completas con IA (verificando invariantes: dinero no
+negativo, propiedades sin duplicados, construcciones equilibradas), ejercita los caminos de
+decisión humanos (tiradas, compras, subastas, cárcel, recaudación y tratos) y valida
+alquileres, hipotecas, bancarrota, tratos, subastas y el guardado.
+
+La suite de interfaz simula pulsaciones reales de botones sobre un DOM simulado y juega
+una partida completa con un generador de números determinista.
 
 ## 🗂️ Estructura
 
@@ -72,6 +76,7 @@ js/engine.js      Motor de reglas, IA, subastas y tratos
 js/ui.js          Render del tablero y modales
 js/main.js        Configuración y arranque
 test/sim.mjs      Pruebas headless del motor
+test/ui.mjs       Pruebas de interfaz con jsdom
 ```
 
 ## 📄 Licencia
