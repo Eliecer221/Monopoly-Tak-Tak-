@@ -273,6 +273,32 @@ async function humanPathTests() {
   if (!owner39) throw new Error("la subasta no adjudicó la propiedad");
   if (owner39.money >= 1500) throw new Error("el ganador no pagó la puja");
   console.log(`✓ Subastas: ${owner39.name} ganó Paseo TAK TAK pagando`);
+
+  // Guardado y carga: el estado se conserva íntegro tras serializar.
+  resetBoardState();
+  const save = new Game({
+    players: [
+      { name: "A", token: TOKENS[0], color: PLAYER_COLORS[0], isAI: true },
+      { name: "B", token: TOKENS[1], color: PLAYER_COLORS[1], isAI: true },
+    ],
+    startMoney: 1500,
+    speed: 9999,
+    rng: mulberry32(11),
+  });
+  save.grantProperty(save.players[0], 1);
+  save.grantProperty(save.players[0], 3);
+  save.players[0].money = 987;
+  save.space(1).houses = 2;
+  save.space(5).mortgaged = true;
+  save.turnCount = 42;
+  const reloaded = Game.fromJSON(JSON.parse(JSON.stringify(save.toJSON())));
+  if (reloaded.players[0].money !== 987) throw new Error("el dinero no se conservó al guardar");
+  if (reloaded.space(1).houses !== 2) throw new Error("las casas no se conservaron al guardar");
+  if (!reloaded.space(5).mortgaged) throw new Error("la hipoteca no se conservó al guardar");
+  if (reloaded.turnCount !== 42) throw new Error("el contador de turnos no se conservó");
+  if (!reloaded.ownsGroup(reloaded.players[0], "brown")) throw new Error("los grupos no se conservaron");
+  if (reloaded.chanceDeck.length !== save.chanceDeck.length) throw new Error("el mazo de Suerte cambió");
+  console.log("✓ Guardado: el estado se serializa y restaura sin pérdidas");
 }
 
 main().catch((err) => {
