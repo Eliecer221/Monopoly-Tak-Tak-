@@ -122,6 +122,46 @@ assert(document.querySelector(".rent-table"), "el detalle debe mostrar la tabla 
 clickByText(".modal .primary-btn", "Cerrar");
 console.log("✓ Interfaz: detalle de propiedad y alquileres");
 
+// Ocho jugadores: el máximo. El tablero, las tarjetas y las fichas deben caber.
+resetBoardState();
+const g8 = new Game({
+  players: Array.from({ length: 8 }, (_, i) => ({
+    name: `P${i + 1}`,
+    token: TOKENS[i],
+    color: PLAYER_COLORS[i],
+    isAI: true,
+  })),
+  startMoney: 1500,
+  speed: 9999,
+  buyIn: 5,
+});
+g8.contribute(5 * 8);
+const ui8 = new UI(g8);
+assert(document.querySelectorAll(".player-card").length === 8, "deben dibujarse 8 tarjetas de jugador");
+assert(document.getElementById("pot-total").textContent.includes("40"), "el bote debe mostrar los $40 aportados");
+assert(document.querySelectorAll(".emote-btn").length >= 6, "deben existir emotes temáticos");
+assert(document.querySelectorAll(".space[data-type='crisis']").length === 4, "deben verse 4 casillas de crisis");
+console.log("✓ Interfaz: 8 jugadores, bote de $40, emotes y crisis");
+
+// El reparto 60/40 debe verse en el modal del ganador.
+const g3 = new Game({
+  players: [
+    { name: "A", token: TOKENS[0], color: PLAYER_COLORS[0], isAI: true },
+    { name: "B", token: TOKENS[1], color: PLAYER_COLORS[1], isAI: true },
+  ],
+  startMoney: 1500,
+  speed: 9999,
+});
+g3.contribute(100);
+const ui3 = new UI(g3);
+g3.players[1].bankrupt = true;
+g3.emit("gameover", { winner: g3.players[0], payout: g3.payout() });
+await tick();
+const repartoTexto = document.querySelector(".winner-box").textContent;
+assert(repartoTexto.includes("60%") && repartoTexto.includes("40%"), "el modal del ganador debe mostrar el reparto 60/40");
+assert(repartoTexto.includes("100"), "el modal debe mostrar el bote total");
+console.log("✓ Interfaz: el modal del ganador muestra el reparto 60/40");
+
 // El móvil es el dispositivo principal de este proyecto: si alguien borra estas
 // reglas, la interfaz vuelve a cortarse en pantallas pequeñas.
 const css = fs.readFileSync(new URL("../css/styles.css", import.meta.url), "utf8");

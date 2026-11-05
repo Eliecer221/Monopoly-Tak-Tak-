@@ -10,10 +10,14 @@ dependencias de ejecución.
   `ask()`, que usa una pila (`pendingStack`) para soportar decisiones anidadas
   (por ejemplo, un trato durante la fase de fin de turno).
 - `js/ui.js` — render del tablero y modales. Consume eventos del motor.
-- `js/data.js` — tablero, grupos de color y tablas de alquiler. El estado
-  mutable del tablero (hipotecas y casas) vive en `BOARD`; `resetBoardState()`
-  lo limpia entre partidas.
-- `js/cards.js` — cartas de Suerte y Arca Común.
+- `js/data.js` — tablero venezolano (40 casillas), grupos de color, tablas de
+  alquiler, las 8 fichas de animales y la definición del Magnate (`MAGNATE`). El
+  estado mutable del tablero (hipotecas y casas) vive en `BOARD`;
+  `resetBoardState()` lo limpia entre partidas.
+- `js/cards.js` — 32 cartas temáticas: 16 de Suerte y 16 de Caja Comunal.
+- Bote **simulado**: vive en `engine.js` (`contribute`, `potTotal`, `payout`) y
+  se pinta en el panel lateral de `ui.js`. No mueve dinero real y la interfaz lo
+  avisa. Ver `RULES.md` para los requisitos legales.
 - `js/api.js` — cliente de la clasificación global. `apiEnabled()` decide si hay
   backend (variable `TAKTAK_API_BASE` o protocolo HTTP).
 - `js/main.js` — configuración, guardado/carga y arranque.
@@ -37,6 +41,13 @@ npm run serve:static # solo el juego, sin backend
 - `pause()` se salta la espera cuando `speed >= 1000`; las pruebas lo usan.
 - El registro de eventos se recorta a 500 entradas en el motor y 120 en la interfaz.
 - Cualquier cambio de reglas necesita una aserción nueva en `test/sim.mjs`.
+- El juego admite de 2 a 8 jugadores (`MIN_PLAYERS`/`MAX_PLAYERS` en `engine.js`).
+- Las casillas de crisis suben de precio con `turnCount` (`crisisAmount`): la
+  crisis empeora con el tiempo. Es intencional, no un desbalance.
+- El Magnate Trumpista aparece cada `MAGNATE.everyTurns` turnos y pide una
+  decisión (`type: "magnate"`) que hay que resolver con `decide("accept"|"reject")`.
+- El bote es simulado. **Nunca** conectar cobros reales sin licencia de juego,
+  KYC y AML (ver `RULES.md`, sección 5). No commitear claves ni cadenas de pago.
 - La cadena de conexión de MongoDB llega por variable de entorno (`MONGODB_URI`).
   Nunca debe escribirse en el repositorio: `.env` está ignorado. El servidor
   bloquea los archivos ocultos (`.env`, `.git`) y las rutas de escape.

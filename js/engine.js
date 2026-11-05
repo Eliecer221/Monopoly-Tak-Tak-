@@ -6,11 +6,11 @@ import {
   BOARD,
   COLOR_GROUPS,
   RAILROAD_RENTS,
-  UTILITY_MULTIPLIER,
   GO_REWARD,
   JAIL_FINE,
   JAIL_POSITION,
   START_MONEY,
+  MAGNATE,
   groupProperties,
 } from "./data.js";
 import { CHANCE_CARDS, CHEST_CARDS } from "./cards.js";
@@ -31,6 +31,9 @@ class Emitter {
   }
 }
 
+export const MIN_PLAYERS = 2;
+export const MAX_PLAYERS = 8;
+
 export class Game extends Emitter {
   constructor(config = {}) {
     super();
@@ -43,7 +46,18 @@ export class Game extends Emitter {
     this.chanceDeck = shuffle(CHANCE_CARDS, this.rng);
     this.chestDeck = shuffle(CHEST_CARDS, this.rng);
     this.log = [];
-    this.players = (config.players || []).map((p, idx) => ({
+    const roster = config.players || [];
+    if (roster.length < MIN_PLAYERS || roster.length > MAX_PLAYERS) {
+      throw new Error(`La partida necesita entre ${MIN_PLAYERS} y ${MAX_PLAYERS} jugadores.`);
+    }
+    // Bote simulado: solo contabilidad interna, no mueve dinero real.
+    this.pot = {
+      buyIn: config.buyIn ?? 0,
+      contributions: 0,
+      housePercent: 40,
+    };
+    this.magnateNextTurn = MAGNATE.everyTurns;
+    this.players = roster.map((p, idx) => ({
       id: idx,
       name: p.name || `Jugador ${idx + 1}`,
       token: p.token || "🎩",
@@ -57,6 +71,7 @@ export class Game extends Emitter {
       bankrupt: false,
       properties: [],
       doublesStreak: 0,
+      skipTurns: 0,
     }));
     this.currentIndex = 0;
     this.lastRoll = null;
@@ -124,6 +139,28 @@ export class Game extends Emitter {
     this.emit("toast", text);
   }
 
+  // ---------- bote simulado ----------
+  // Todo el dinero del bote es contabilidad interna de la partida: el juego no
+  // procesa pagos reales. Ver las advertencias legales en RULES.md.
+  contribute(amount) {
+    const value = Math.max(0, Math.round(Number(amount) || 0));
+    if (!value) return this.pot;
+    this.pot.contributions += value;
+    this.emit("pot", this.pot);
+    return this.pot;
+  }
+
+  potTotal() {
+    return this.pot.contributions;
+  }
+
+  // Reparto al terminar: el ganador se lleva el 60% y la casa el 40%.
+  payout() {
+    const total = this.potTotal();
+    const house = Math.round(total * (this.pot.housePercent / 100));
+    return { total, house, winner: total - house };
+  }
+
   // ---------- decisiones ----------
   // Las decisiones se apilan para permitir flujos anidados (por ejemplo,
   // proponer un trato mientras se espera a que el jugador termine el turno).
@@ -182,7 +219,16 @@ export class Game extends Emitter {
 
   async playTurn(player) {
     if (player.bankrupt) return;
+    if (player.skipTurns > 0) {
+      player.skipTurns--;
+      this.logEvent(`${player.name} pierde el turno.`, "bad");
+      this.toast(`${player.name} pierde el turno`);
+      await this.pause(300);
+      return;
+    }
     this.emit("turn", player);
+    await this.maybeMagnate(player);
+    if (this.over) return;
     let rolls = 0;
 
     while (true) {
@@ -390,6 +436,54 @@ export class Game extends Emitter {
   }
 
   // ---------- casillas ----------
+  // El costo de una crisis sube con el turno: la cosa empeora con el tiempo.
+  crisisAmount(space, player) {
+    const base = space.amount || 50;
+    const escala = 1 + Math.floor(this.turnCount / 40) * 0.25;
+    return Math.round(base * escala);
+  }
+
+  // ---------- El Magnate Trumpista ----------
+  // Cada MAGNATE.everyTurns turnos aparece a ofrecer un trato al jugador
+  // actual. Es el personaje central del juego: acepta o rechaza.
+  async maybeMagnate(player) {
+    if (this.turnCount < this.magnateNextTurn) return;
+    this.magnateNextTurn += MAGNATE.everyTurns;
+    const deal = MAGNATE.deals[Math.floor(this.rng() * MAGNATE.deals.length)];
+    this.emit("magnate", { player, deal });
+    this.logEvent(`${MAGNATE.icon} ${MAGNATE.name} aparece ante ${player.name}.`, "info");
+
+    let accepts;
+    if (player.isAI) {
+      await this.pause(400);
+      // La IA acepta si el trato no la deja sin fondos.
+      accepts = deal.accept.amount >= 0 || player.money > Math.abs(deal.accept.amount) + 200;
+    } else {
+      accepts = await this.ask({
+        type: "magnate",
+        player,
+        deal,
+        text: deal.text,
+        options: [
+          { value: "accept", label: "Aceptar el deal" },
+          { value: "reject", label: "Rechazar" },
+        ],
+      });
+      accepts = accepts === "accept";
+    }
+
+    if (accepts) {
+      this.logEvent(deal.acceptText, "good");
+      const amount = deal.accept.amount;
+      if (amount >= 0) this.addMoney(player, amount);
+      else await this.charge(player, -amount, null, "deal del magnate");
+    } else {
+      this.logEvent(deal.rejectText, "bad");
+      // Rechazar tiene consecuencia: en algunos tratos se pierde el turno.
+      if (deal.rejectLoseTurn) player.skipTurns = (player.skipTurns || 0) + 1;
+    }
+  }
+
   async resolveLanding(player, diceTotal, depth) {
     const s = this.space(player.position);
     this.activeSpace = s.i;
@@ -405,6 +499,13 @@ export class Game extends Emitter {
         this.logEvent(`${player.name} paga ${s.name} ($${s.amount}).`, "bad");
         await this.charge(player, s.amount, null, `impuesto ${s.name}`);
         break;
+      case "crisis": {
+        const amount = this.crisisAmount(s, player);
+        this.logEvent(`${player.name} cae en crisis: ${s.name} (paga $${amount}).`, "bad");
+        this.toast(`Crisis: ${s.name}`);
+        await this.charge(player, amount, null, `crisis ${s.name}`);
+        break;
+      }
       case "gotojail":
         await this.sendToJail(player);
         break;
@@ -416,7 +517,6 @@ export class Game extends Emitter {
         break;
       case "property":
       case "railroad":
-      case "utility":
         await this.landOnOwnable(player, s, diceTotal);
         break;
       default:
@@ -426,7 +526,7 @@ export class Game extends Emitter {
 
   async drawCard(player, kind, depth) {
     const deckKey = kind === "chance" ? "chanceDeck" : "chestDeck";
-    const label = kind === "chance" ? "Suerte" : "Arca Común";
+    const label = kind === "chance" ? "Suerte" : "Caja Comunal";
     if (!this[deckKey].length) {
       this[deckKey] = shuffle(kind === "chance" ? CHANCE_CARDS : CHEST_CARDS, this.rng);
     }
@@ -535,12 +635,6 @@ export class Game extends Emitter {
     if (s.type === "railroad") {
       const count = owner.properties.filter((i) => this.space(i).type === "railroad").length;
       return RAILROAD_RENTS[Math.min(count, 4) - 1] ?? 25;
-    }
-    if (s.type === "utility") {
-      const count = owner.properties.filter((i) => this.space(i).type === "utility").length;
-      const mult = count >= 2 ? UTILITY_MULTIPLIER[1] : UTILITY_MULTIPLIER[0];
-      const roll = diceTotal || this.lastRoll?.total || 7;
-      return mult * roll;
     }
     return 0;
   }
@@ -736,7 +830,14 @@ export class Game extends Emitter {
       this.phase = "over";
       const winner = alive[0] || null;
       if (winner) this.logEvent(`¡${winner.name} gana la partida!`, "good");
-      this.emit("gameover", { winner });
+      const reparto = this.payout();
+      if (reparto.total > 0) {
+        this.logEvent(
+          `Reparto del bote: $${reparto.winner} al ganador (60%) y $${reparto.house} a la casa (40%).`,
+          "info"
+        );
+      }
+      this.emit("gameover", { winner, payout: reparto });
       this.emit("phase", this.phase);
     }
   }
@@ -860,8 +961,6 @@ export class Game extends Emitter {
       else if (owned > 0) v *= 1.4;
     } else if (s.type === "railroad") {
       v *= 1 + this.countType(player, "railroad") * 0.35;
-    } else if (s.type === "utility") {
-      v *= 1 + this.countType(player, "utility") * 0.3;
     }
     return Math.round(v);
   }
@@ -878,8 +977,6 @@ export class Game extends Emitter {
       else if (owned > 0) v *= 1.3;
     } else if (s.type === "railroad") {
       v *= 1 + this.countType(player, "railroad") * 0.4;
-    } else if (s.type === "utility") {
-      v *= 1 + this.countType(player, "utility") * 0.3;
     }
     return Math.round(v);
   }
@@ -1079,6 +1176,8 @@ export class Game extends Emitter {
       log: this.log.slice(-200),
       chanceDeck: this.chanceDeck.map((c) => c.text),
       chestDeck: this.chestDeck.map((c) => c.text),
+      pot: this.pot,
+      magnateNextTurn: this.magnateNextTurn,
     };
   }
 
@@ -1089,6 +1188,8 @@ export class Game extends Emitter {
     game.over = data.over;
     game.currentIndex = data.currentIndex;
     game.log = data.log || [];
+    if (data.pot) game.pot = { ...game.pot, ...data.pot };
+    if (typeof data.magnateNextTurn === "number") game.magnateNextTurn = data.magnateNextTurn;
     for (const saved of data.spaces || []) {
       const s = BOARD[saved.i];
       s.mortgaged = saved.mortgaged;
