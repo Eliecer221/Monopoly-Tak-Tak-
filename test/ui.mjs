@@ -122,5 +122,18 @@ assert(document.querySelector(".rent-table"), "el detalle debe mostrar la tabla 
 clickByText(".modal .primary-btn", "Cerrar");
 console.log("✓ Interfaz: detalle de propiedad y alquileres");
 
+// El móvil es el dispositivo principal de este proyecto: si alguien borra estas
+// reglas, la interfaz vuelve a cortarse en pantallas pequeñas.
+const css = fs.readFileSync(new URL("../css/styles.css", import.meta.url), "utf8");
+const mobile = css.slice(css.indexOf("@media (max-width: 620px)"));
+assert(mobile.length > 0, "debe existir el bloque para móvil");
+assert(/\.overlay\s*\{[^}]*align-items:\s*start/.test(mobile), "el modal debe alinearse arriba en móvil");
+assert(/\.modal\s*\{[^}]*max-width:\s*100%/.test(mobile), "el modal no debe desbordar en móvil");
+assert(/\.actions\s*\{[^}]*position:\s*fixed/.test(mobile), "los botones de juego deben quedar fijos abajo");
+assert(/\.actions:empty\s*\{\s*display:\s*none/.test(mobile), "la barra no debe mostrarse vacía");
+assert(/min-height:\s*44px/.test(mobile), "los controles deben tener tamaño táctil suficiente");
+assert(/\.toast\s*\{\s*bottom:\s*88px/.test(mobile), "el aviso no debe quedar tapado por la barra");
+console.log("✓ Interfaz: reglas de móvil presentes (modal, botones fijos, tamaño táctil)");
+
 console.log("\n✅ Pruebas de interfaz superadas");
 process.exit(0);

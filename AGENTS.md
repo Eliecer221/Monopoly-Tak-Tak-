@@ -47,3 +47,7 @@ npm run serve:static # solo el juego, sin backend
   en el panel y no viaje en el repositorio.
 - En el plan gratuito la instancia se duerme tras unos 15 minutos sin visitas; la
   primera petición tarda en despertar. No es un fallo.
+- El móvil es el dispositivo principal, así que el bloque `@media (max-width: 620px)`
+  de `css/styles.css` es parte del contrato: el modal se alinea arriba y no desborda,
+  los botones de juego quedan fijos abajo (`.actions`) y los controles miden 44px o más.
+  `test/ui.mjs` comprueba estas reglas para que no se pierdan.

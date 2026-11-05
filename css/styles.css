@@ -488,7 +488,52 @@ button { font-family: inherit; cursor: pointer; }
 .leaderboard-list li::marker { color: var(--accent); font-weight: 700; }
 
 @media (max-width: 620px) {
+  .app { padding: 10px 8px 104px; }
+
+  .topbar { flex-direction: column; align-items: stretch; gap: 10px; padding: 12px; }
+  .topbar-actions { display: grid; grid-template-columns: repeat(2, 1fr); }
+  .topbar-actions .ghost-btn { min-height: 42px; }
+
+  .board-wrap { padding: 8px; border-radius: 16px; }
+  .board { gap: 2px; padding: 4px; }
   .space { font-size: 7.5px; }
   .space .space-price { display: none; }
-  .app { padding: 12px 10px 30px; }
+  .space .space-icon { font-size: 12px; }
+
+  .overlay { padding: 10px; align-items: start; }
+  .modal { padding: 16px; width: 100%; max-width: 100%; }
+  .pc-row { flex-wrap: wrap; }
+  .pc-row input[type="text"] { min-width: 110px; }
+
+  /* Tamaño táctil cómodo: como mínimo 44px de alto. */
+  .pc-row input[type="text"], .pc-row select { min-height: 44px; }
+  .segmented button { min-height: 44px; }
+  .primary-btn, .ghost-btn { min-height: 44px; }
+
+  /* En el móvil los botones de juego quedan fijos abajo: siempre a mano
+     mientras se mira el tablero. */
+  .actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 40;
+    padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+    background: linear-gradient(180deg, rgba(11, 16, 32, 0.8), rgba(11, 16, 32, 0.98));
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(10px);
+  }
+  .actions:empty { display: none; }
+  .actions button { min-height: 48px; font-size: 15px; }
+
+  /* El aviso flotante debe quedar por encima de la barra de botones. */
+  .toast { bottom: 88px; }
+
+  .log-panel { margin-bottom: 8px; }
+}
+
+/* En pantallas táctiles, evita el retardo del doble toque y el resaltado azul. */
+button, .space {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
