@@ -1,17 +1,26 @@
 # 🎩 Monopoly TAK TAK
 
-Clon del clásico juego de mesa para el navegador, con temática **TAK TAK**.
-Sin dependencias, sin instalación y sin conexión: abre `index.html` y juega.
+Clon del clásico juego de mesa para el navegador, con temática **venezolana**:
+la crisis, los apagones, el mercado cambiario y **El Magnate Trumpista**.
+Sin dependencias de ejecución: abre `index.html` y juega.
 
 ![estado](https://img.shields.io/badge/estado-jugable-35d07f)
 
+**Jugar en línea:** <https://eliecer221.github.io/Monopoly-Tak-Tak-/>
+
 ## ✨ Características
 
-- **Tablero completo de 40 casillas** con las 8 familias de colores, 4 estaciones y 2 compañías.
-- **2 a 4 jugadores** en el mismo dispositivo: cada uno puede ser humano o IA.
+- **Tablero de 40 casillas** ambientado en Venezuela: PDVSA, Corpoelec, Cantv, ministerios,
+  4 transportes y 4 casillas de **crisis** (apagones, agua, cambio, deuda).
+- **2 a 8 jugadores** en el mismo dispositivo: cada uno puede ser humano o IA.
+- **8 fichas de animales venezolanos**: Turpial, Jaguar, Chigüire, Tonina, Oso Frontino,
+  Caimán del Orinoco, Guacamaya y Mono Araguato.
+- **El Magnate Trumpista**: aparece cada 12 turnos con un "deal" que aceptar o rechazar.
+- **Bote simulado** con buy-in ajustable ($0–$50), recargas y reparto 60% ganador / 40% casa.
 - **IA** que compra, construye, hipoteca, puja en subastas y **propone tratos** para completar monopolios.
 - **Reglas clásicas**: alquileres escalados, grupos de color, construcción equilibrada, hoteles,
-  hipotecas con interés, cárcel, dobles, impuestos, Suerte y Arca Común.
+  hipotecas con interés, cárcel, dobles, impuestos, Suerte y Caja Comunal.
+- **32 cartas temáticas** con la actualidad venezolana.
 - **Subastas** cuando un jugador rechaza comprar.
 - **Tratos** entre jugadores: intercambio de propiedades y efectivo con previsualización.
 - **Guardado local** de la partida en el navegador.
@@ -64,8 +73,10 @@ El servidor valida los datos, limita el tamaño de las peticiones y aplica un to
 | Propiedades | Se compran al caer; si rechazas, van a subasta |
 | Grupo de color | Alquiler base ×2 sin casas; permite construir |
 | Construcción | Equilibrada: no puedes sacar más de 1 casa de ventaja |
-| Estaciones | Alquiler $25 / $50 / $100 / $200 según cuántas poseas |
-| Compañías | Alquiler 4× dados (10× con ambas) |
+| Transportes | Alquiler $25 / $50 / $100 / $200 según cuántos poseas |
+| Crisis | 4 casillas que cobran al caer; el costo sube 25% cada 40 turnos |
+| Magnate | Aparece cada 12 turnos con un deal; aceptar o rechazar tiene consecuencias |
+| Bote | Simulado: 60% ganador, 40% casa. No mueve dinero real |
 | Hipoteca | Recibes la mitad del precio; recuperar cuesta +10% |
 | Cárcel | Pagas $50, usas carta o sacas dobles; tras 3 turnos pagas |
 | Dobles | Repites turno; tres dobles seguidos te llevan a la cárcel |
@@ -92,7 +103,11 @@ los límites, el servido de archivos y que los archivos ocultos y las rutas de e
 bloqueados.
 
 La suite de interfaz simula pulsaciones reales de botones sobre un DOM simulado y juega
-una partida completa con un generador de números determinista.
+una partida completa con un generador de números determinista. También comprueba el tablero
+de 8 jugadores, el bote y el reparto 60/40.
+
+Las reglas completas, la tabla de precios, las 32 cartas, el diseño del tablero y los
+requisitos legales del sistema de pagos están en **[RULES.md](RULES.md)**.
 
 La prueba de integración arranca el servidor de verdad, envía la puntuación por HTTP y
 comprueba que se guarda y se muestra en el modal del ganador.
@@ -102,8 +117,8 @@ comprueba que se guarda y se muestra en el modal del ganador.
 ```
 index.html         Interfaz
 css/styles.css     Estilos
-js/data.js         Tablero, grupos, precios y alquileres
-js/cards.js        Cartas de Suerte y Arca Común
+js/data.js         Tablero venezolano, fichas, precios y El Magnate
+js/cards.js        Cartas de Suerte y Caja Comunal
 js/engine.js       Motor de reglas, IA, subastas y tratos
 js/ui.js           Render del tablero y modales
 js/api.js          Cliente de la clasificación global
@@ -141,6 +156,12 @@ Si prefieres crearlo a mano: **New → Web Service**, conecta el repositorio y u
 En el plan gratuito la instancia se **duerme tras unos 15 minutos sin visitas**; la
 primera visita después tarda unos 30–60 segundos en responder. Es normal y no afecta
 a los datos: las puntuaciones siguen en Atlas.
+
+## ⚖️ Aviso legal
+
+El **bote es una simulación**: el juego no cobra ni paga dinero real. Cualquier sistema
+de pago real necesita licencia de juego, KYC, AML y procesadores autorizados. Ver
+[RULES.md](RULES.md), sección 5. La temática es satírica y no es información periodística.
 
 ## 📄 Licencia
 

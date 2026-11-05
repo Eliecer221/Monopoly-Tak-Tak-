@@ -2,7 +2,7 @@
 // y comprueba invariantes. Ejecutar con: node test/sim.mjs
 
 import { Game, resetBoardState } from "../js/engine.js";
-import { BOARD, TOKENS, PLAYER_COLORS } from "../js/data.js";
+import { BOARD, TOKENS, PLAYER_COLORS, MAGNATE } from "../js/data.js";
 
 // PRNG determinista para que las simulaciones sean reproducibles.
 function mulberry32(seed) {
@@ -107,11 +107,64 @@ async function main() {
   if (g.calcRent(s1, a, 7) !== s1.rent[3]) throw new Error("alquiler con casas incorrecto");
   g.grantProperty(a, 5);
   g.grantProperty(a, 15);
-  if (g.calcRent(g.space(5), a, 7) !== 50) throw new Error("alquiler 2 estaciones incorrecto");
-  g.grantProperty(a, 12);
-  g.grantProperty(a, 28);
-  if (g.calcRent(g.space(12), a, 8) !== 80) throw new Error("alquiler 2 compañías incorrecto");
-  console.log("✓ Alquileres: base doble, casas, estaciones y compañías correctos");
+  if (g.calcRent(g.space(5), a, 7) !== 50) throw new Error("alquiler 2 transportes incorrecto");
+  console.log("✓ Alquileres: base doble, casas y transportes correctos");
+
+  // Prueba dirigida: casillas de crisis
+  const gc = makeGame(77, 2);
+  const crisisSpaces = BOARD.filter((s) => s.type === "crisis");
+  if (crisisSpaces.length !== 4) throw new Error(`se esperaban 4 casillas de crisis, hay ${crisisSpaces.length}`);
+  for (const s of crisisSpaces) {
+    if (!s.amount || s.amount <= 0) throw new Error(`la crisis ${s.name} no tiene costo`);
+  }
+  const antes = gc.crisisAmount(gc.space(4), gc.players[0]);
+  gc.turnCount = 120;
+  const despues = gc.crisisAmount(gc.space(4), gc.players[0]);
+  if (!(despues > antes)) throw new Error("la crisis no escala con los turnos");
+  console.log(`✓ Crisis: 4 casillas, costo escala de $${antes} a $${despues}`);
+
+  // Prueba dirigida: bote simulado y reparto 60/40
+  const gp = makeGame(55, 4);
+  gp.contribute(0);
+  if (gp.potTotal() !== 0) throw new Error("el bote debería empezar en 0");
+  gp.contribute(5 * 4);
+  gp.contribute(5);
+  if (gp.potTotal() !== 25) throw new Error(`bote incorrecto: ${gp.potTotal()}`);
+  const rep = gp.payout();
+  if (rep.total !== 25) throw new Error("el total del reparto es incorrecto");
+  if (rep.house !== 10) throw new Error(`la casa debería llevarse 10, se lleva ${rep.house}`);
+  if (rep.winner !== 15) throw new Error(`el ganador debería llevarse 15, se lleva ${rep.winner}`);
+  console.log("✓ Bote: aportes, recarga y reparto 60/40 correctos");
+
+  // Prueba dirigida: el Magnate Trumpista aparece periódicamente
+  const gm = makeGame(31, 3);
+  let magnateSeen = 0;
+  gm.on("magnate", () => magnateSeen++);
+  gm.on("decision", (d) => {
+    if (d.type === "magnate") gm.decide("accept");
+    else if (d.type === "roll") gm.decide("roll");
+    else if (d.type === "buy") gm.decide("pass");
+    else gm.decide(d.options && d.options.length ? d.options[0].value : "ok");
+  });
+  await gm.run();
+  const esperado = Math.floor(gm.turnCount / MAGNATE.everyTurns);
+  if (magnateSeen < 1) throw new Error("el Magnate nunca apareció");
+  if (magnateSeen < esperado - 1 || magnateSeen > esperado + 1) {
+    throw new Error(`el Magnate apareció ${magnateSeen} veces, se esperaban ~${esperado}`);
+  }
+  console.log(`✓ Magnate: apareció ${magnateSeen} veces en ${gm.turnCount} turnos`);
+
+  // Prueba dirigida: el motor exige entre 2 y 8 jugadores
+  for (const n of [1, 9]) {
+    let threw = false;
+    try {
+      makeGame(1, n);
+    } catch {
+      threw = true;
+    }
+    if (!threw) throw new Error(`el motor aceptó ${n} jugadores`);
+  }
+  console.log("✓ Jugadores: el motor rechaza menos de 2 y más de 8");
 
   // Prueba dirigida: hipoteca y bancarrota
   const g2 = makeGame(1234, 2);
@@ -126,6 +179,11 @@ async function main() {
   g2.declareBankrupt(p2, p1);
   if (!p2.bankrupt) throw new Error("bancarrota no registrada");
   console.log("✓ Hipotecas y bancarrota funcionan");
+
+  // Simulación completa con 8 jugadores (el máximo).
+  const r8 = await playGame(2024, 8);
+  if (!r8.over) throw new Error("la partida de 8 jugadores no terminó");
+  console.log(`✓ Ocho jugadores: partida terminada en ${r8.turns} turnos`);
 
   if (failures > 0 || finished !== games) {
     console.error(`\n✗ FALLARON ${failures} partidas`);

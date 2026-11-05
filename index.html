@@ -19,7 +19,7 @@
       <span class="brand-mark">🎩</span>
       <div class="brand-text">
         <h1>MONOPOLY <span class="tak">TAK TAK</span></h1>
-        <p>Compra, construye y domina la ciudad</p>
+        <p>Compra PDVSA, sobrevive a la crisis y domina Venezuela</p>
       </div>
     </div>
     <div class="topbar-actions">
@@ -48,7 +48,21 @@
         <div class="dice-total" id="dice-total">—</div>
       </div>
 
+      <div class="pot-panel" id="pot-panel">
+        <div class="pot-head">
+          <span class="pot-label">Bote de la partida</span>
+          <span class="pot-total" id="pot-total">$0</span>
+        </div>
+        <p class="pot-note" id="pot-note">Simulado. Aquí no se juega dinero real.</p>
+        <div class="pot-actions">
+          <button id="btn-recharge" class="mini-btn" type="button">Recargar bote</button>
+          <button id="btn-payout" class="mini-btn" type="button">Ver reparto</button>
+        </div>
+      </div>
+
       <div class="actions" id="actions"></div>
+
+      <div class="emotes" id="emotes" aria-label="Emotes"></div>
 
       <div class="players" id="players"></div>
 
@@ -75,6 +89,10 @@
         <button type="button" data-count="2" class="active">2</button>
         <button type="button" data-count="3">3</button>
         <button type="button" data-count="4">4</button>
+        <button type="button" data-count="5">5</button>
+        <button type="button" data-count="6">6</button>
+        <button type="button" data-count="7">7</button>
+        <button type="button" data-count="8">8</button>
       </div>
     </label>
 
@@ -88,6 +106,22 @@
         <button type="button" data-money="2500">2.500</button>
       </div>
     </label>
+
+    <label class="field">
+      <span>Buy-in del bote (por jugador, en dólares)</span>
+      <div class="segmented" id="buy-in">
+        <button type="button" data-buyin="0" class="active">0</button>
+        <button type="button" data-buyin="1">1</button>
+        <button type="button" data-buyin="5">5</button>
+        <button type="button" data-buyin="10">10</button>
+        <button type="button" data-buyin="20">20</button>
+        <button type="button" data-buyin="50">50</button>
+      </div>
+    </label>
+    <p class="modal-note">
+      El bote es <strong>simulado</strong>: el juego no cobra ni paga dinero real.
+      Solo sirve para practicar el sistema 60/40 y los montos ajustables.
+    </p>
 
     <div class="modal-actions">
       <button id="btn-start" class="primary-btn" type="button">¡Empezar partida!</button>
@@ -105,16 +139,19 @@
   <div class="modal rules">
     <h2 class="modal-title">Reglas rápidas</h2>
     <ul class="rules-list">
+      <li><strong>Jugadores:</strong> de 2 a 8. Cada uno lleva un animal venezolano.</li>
       <li><strong>Objetivo:</strong> dejar en bancarrota al resto de jugadores.</li>
       <li><strong>Salida:</strong> cobra <em>$200</em> cada vez que pasas por SALIDA.</li>
-      <li><strong>Propiedades:</strong> si caes en una libre puedes comprarla; si es de otro, pagas alquiler.</li>
+      <li><strong>Propiedades:</strong> empresas y ministerios reales. Si caes en una libre puedes comprarla; si es de otro, pagas alquiler.</li>
       <li><strong>Grupos de color:</strong> con el grupo completo, el alquiler se duplica (sin casas) y puedes construir.</li>
       <li><strong>Construir:</strong> solo en grupos completos y de forma equilibrada (sin saltos de más de 1 casa).</li>
-      <li><strong>Estaciones:</strong> alquiler $25 / $50 / $100 / $200 según cuántas poseas.</li>
-      <li><strong>Servicios:</strong> alquiler 4× los dados (10× si posees ambos).</li>
+      <li><strong>Transportes:</strong> Metro, Ferrocarril, Puerto y Aeropuerto. Alquiler $25 / $50 / $100 / $200 según cuántos poseas.</li>
+      <li><strong>Crisis:</strong> apagones, falta de agua, brecha cambiaria y deuda pública. Te cobran al caer, y suben con el tiempo.</li>
+      <li><strong>El Magnate Trumpista:</strong> cada 12 turnos aparece a ofrecer un "deal". Aceptar o rechazar tiene consecuencias.</li>
       <li><strong>Hipoteca:</strong> recibes la mitad del precio; recuperarla cuesta +10% de interés.</li>
       <li><strong>Cárcel:</strong> pagas $50, usas una carta, o sacas dobles. Tras 3 turnos debes pagar.</li>
       <li><strong>Dobles:</strong> sacar dobles repite turno. Tres dobles seguidos te llevan a la cárcel.</li>
+      <li><strong>Bote (simulado):</strong> el ganador se lleva el 60% y la casa el 40%. Montos ajustables y recargables. Aquí no se mueve dinero real.</li>
     </ul>
     <div class="modal-actions">
       <button class="primary-btn" type="button" data-close>Entendido</button>

@@ -236,6 +236,50 @@ button { font-family: inherit; cursor: pointer; }
 }
 .board-logo small { display: block; font-size: 0.42em; letter-spacing: 0.3em; color: var(--muted); -webkit-text-fill-color: var(--muted); }
 .board-center .deck-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.board-magnate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 210, 63, 0.35);
+  background: rgba(255, 210, 63, 0.08);
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+.board-magnate-icon { font-size: 20px; }
+.board-magnate-name { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #ffe27a; }
+.magnate-card { border-color: rgba(255, 210, 63, 0.5); }
+
+/* Casillas de crisis: se distinguen de las propiedades por el borde rojo. */
+.space[data-type="crisis"] .space-inner { color: #ffd9dd; }
+
+/* Panel del bote (simulado). */
+.pot-panel {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+.pot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pot-label { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.pot-total { font-size: 20px; font-weight: 800; color: #ffe27a; font-family: "DM Mono", monospace; }
+.pot-note { margin: 0; font-size: 11px; color: var(--muted); }
+.pot-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.modal-note { font-size: 12px; color: var(--muted); margin: 0 0 4px; line-height: 1.5; }
+
+/* Emotes temáticos. */
+.emotes { display: flex; gap: 6px; flex-wrap: wrap; }
+.emote-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.emote-btn:hover { background: rgba(255, 255, 255, 0.1); }
 .deck-chip {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.05);
