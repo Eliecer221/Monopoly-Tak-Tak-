@@ -17,8 +17,6 @@ concurrency:
 jobs:
   deploy:
     # GitHub Pages no está disponible en repositorios privados con plan gratuito.
-    # En un repositorio privado el trabajo se omite en vez de fallar; al hacerlo
-    # público se publica solo.
     if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-latest
     environment:
@@ -27,12 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      # Solo se publica el juego: ni el servidor ni las pruebas van al sitio.
+      - name: Preparar el sitio estático
+        run: |
+          mkdir -p site
+          cp -r index.html css js site/
       - uses: actions/upload-pages-artifact@v3
         with:
-          # Solo el juego: el servidor no se publica como sitio estático.
-          path: |
-            index.html
-            css
-            js
+          path: site
       - id: deployment
         uses: actions/deploy-pages@v4
