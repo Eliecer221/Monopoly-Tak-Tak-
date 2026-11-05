@@ -2,3 +2,8 @@ node_modules/
 .DS_Store
 *.log
 .agent_tmp/
+
+# Secretos: la cadena de conexión de MongoDB nunca entra al repositorio.
+.env
+.env.*
+!.env.example

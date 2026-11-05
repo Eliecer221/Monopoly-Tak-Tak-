@@ -25,6 +25,10 @@ jobs:
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: .
+          # Solo el juego: el servidor no se publica como sitio estático.
+          path: |
+            index.html
+            css
+            js
       - id: deployment
         uses: actions/deploy-pages@v4

@@ -13,9 +13,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Instalar dependencias
+        run: npm install
       - name: Pruebas del motor (simulaciones)
-        run: npm test
+        run: npm run test:sim
+      - name: Pruebas del servidor y la API
+        run: npm run test:server
       - name: Pruebas de interfaz (jsdom)
-        run: |
-          npm install --no-save jsdom
-          npm run test:ui
+        run: npm run test:ui
+      - name: Pruebas de integración (interfaz + API)
+        run: node test/integration.mjs

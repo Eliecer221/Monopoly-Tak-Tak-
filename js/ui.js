@@ -2,6 +2,7 @@
 
 import { BOARD, COLOR_GROUPS, TOKENS, groupProperties, spaceColor } from "./data.js";
 import { el, fmt, sleep } from "./utils.js";
+import { apiEnabled, fetchLeaderboard, submitScore } from "./api.js";
 
 const DICE_FACES = ["⚀", "⚁", "⚂", "⚃", "⚄", "⚅"];
 
@@ -661,12 +662,60 @@ export class UI {
     content.append(el("div", { class: "winner-token", text: winner ? winner.token : "🏆" }));
     content.append(el("h2", { text: winner ? `¡${winner.name} gana!` : "Partida terminada" }));
     content.append(el("p", { text: winner ? `Patrimonio final: ${fmt(this.game.netWorth(winner))}` : "No queda ningún jugador." }));
+
+    // Clasificación global: solo si el jugador humano ganó y hay backend.
+    const humanWon = winner && !winner.isAI;
+    const board = el("div", { class: "leaderboard" });
+    content.append(board);
+
+    if (humanWon && apiEnabled()) {
+      const status = el("p", { class: "modal-sub", text: "Enviando tu puntuación…" });
+      content.append(status);
+      // Se consulta la clasificación después de enviar la puntuación: si no,
+      // la petición de lectura puede adelantarse y no incluirla.
+      submitScore({
+        name: winner.name,
+        netWorth: Math.round(this.game.netWorth(winner)),
+        turns: this.game.turnCount,
+        players: this.game.players.length,
+      })
+        .then(() => (status.textContent = "Puntuación enviada a la clasificación."))
+        .catch(() => (status.textContent = "No se pudo enviar la puntuación."))
+        .finally(() => this.renderLeaderboard(board));
+    }
+
     const actions = el("div", { class: "modal-actions" }, []);
     const again = el("button", { class: "primary-btn", type: "button", text: "Nueva partida" });
     again.addEventListener("click", () => window.location.reload());
     actions.append(again);
     content.append(actions);
     this.openModal(content);
+
+    if (apiEnabled() && !humanWon) this.renderLeaderboard(board);
+  }
+
+  async renderLeaderboard(container) {
+    try {
+      const rows = await fetchLeaderboard(10);
+      container.innerHTML = "";
+      container.append(el("h3", { class: "modal-sub", text: "🏆 Mejores partidas" }));
+      if (!rows.length) {
+        container.append(el("p", { class: "modal-sub", text: "Todavía no hay puntuaciones." }));
+        return;
+      }
+      const list = el("ol", { class: "leaderboard-list" });
+      for (const row of rows) {
+        list.append(
+          el("li", {
+            text: `${row.name} — ${fmt(row.netWorth)} · ${row.turns} turnos · ${row.players} jugadores`,
+          })
+        );
+      }
+      container.append(list);
+    } catch {
+      container.innerHTML = "";
+      container.append(el("p", { class: "modal-sub", text: "Clasificación no disponible." }));
+    }
   }
 }
 
