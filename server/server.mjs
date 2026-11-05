@@ -126,6 +126,11 @@ export function createServer({
 
     if (req.method === "OPTIONS") return send(res, 204, {});
 
+    // Render usa esta ruta para saber si la instancia está viva.
+    if (pathname === "/health") {
+      return send(res, 200, { ok: true, leaderboard: Boolean(uri || store) });
+    }
+
     if (pathname === "/api/leaderboard") {
       if (req.method !== "GET") return send(res, 405, { error: "método no permitido" });
       try {

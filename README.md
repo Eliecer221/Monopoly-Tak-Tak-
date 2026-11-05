@@ -115,6 +115,33 @@ test/ui.mjs        Pruebas de interfaz con jsdom
 test/integration.mjs  Pruebas de integración de extremo a extremo
 ```
 
+## ☁️ Despliegue en Render
+
+El repositorio incluye `render.yaml`, así que el despliegue es casi automático:
+
+1. Entra en <https://render.com> y crea una cuenta (puedes entrar con GitHub).
+2. Pulsa **New → Blueprint** y elige el repositorio `Monopoly-Tak-Tak-`.
+3. Render lee `render.yaml` y pide el valor de `MONGODB_URI`. Pega ahí la cadena de
+   conexión de MongoDB Atlas (la misma que usas en local). No la escribas en el repositorio.
+4. Pulsa **Apply**. Cuando termine, tendrás una URL del tipo
+   `https://monopoly-tak-tak.onrender.com`.
+
+La app arranca con `npm start`, expone `/health` para la comprobación de vida y sirve
+el juego y la clasificación en el mismo dominio, así que no hace falta configurar nada
+en el cliente.
+
+### Alternativa sin `render.yaml`
+
+Si prefieres crearlo a mano: **New → Web Service**, conecta el repositorio y usa
+`npm install` como comando de construcción, `npm start` como comando de arranque y
+`/health` como ruta de salud. Añade `MONGODB_URI` en **Environment**.
+
+### Aviso del plan gratuito
+
+En el plan gratuito la instancia se **duerme tras unos 15 minutos sin visitas**; la
+primera visita después tarda unos 30–60 segundos en responder. Es normal y no afecta
+a los datos: las puntuaciones siguen en Atlas.
+
 ## 📄 Licencia
 
 MIT.

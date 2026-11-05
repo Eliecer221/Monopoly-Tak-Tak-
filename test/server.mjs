@@ -135,8 +135,18 @@ function main() {
       assert(res.status === 503, "sin base de datos la API debería responder 503");
       res = await request(offBase, "/");
       assert(res.status === 200, "el juego debe servirse aunque no haya base de datos");
+      const offHealth = await request(offBase, "/health");
+      assert(offHealth.body.leaderboard === false, "sin base de datos la salud debe indicarlo");
       await new Promise((r) => off.close(r));
       console.log("✓ Sin base de datos: el juego se sirve y la API responde 503");
+
+      // Render comprueba esta ruta para saber si la instancia está viva.
+      // El servidor `base` tiene almacén inyectado, así que informa que sí.
+      const health = await request(base, "/health");
+      assert(health.status === 200, "la ruta de salud debe responder 200");
+      assert(health.body.ok === true, "la ruta de salud debe indicar ok");
+      assert(health.body.leaderboard === true, "con almacén la clasificación está activa");
+      console.log("✓ Salud: /health responde y refleja si hay clasificación");
     } finally {
       await new Promise((r) => server.close(r));
     }

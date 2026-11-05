@@ -1,0 +1,25 @@
+# Despliegue en Render (https://render.com) para Monopoly TAK TAK.
+#
+# Con este archivo, en Render basta con "New > Blueprint" y elegir este
+# repositorio: el servicio, el comando de arranque y la ruta de salud ya
+# vienen definidos. Solo hay que rellenar MONGODB_URI cuando Render lo pida.
+
+services:
+  - type: web
+    name: monopoly-tak-tak
+    runtime: node
+    plan: free
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: MONGODB_DB
+        value: monopoly_taktak
+      # Se introduce en el panel de Render, nunca en el repositorio.
+      - key: MONGODB_URI
+        sync: false

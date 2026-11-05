@@ -42,3 +42,8 @@ npm run serve:static # solo el juego, sin backend
   bloquea los archivos ocultos (`.env`, `.git`) y las rutas de escape.
 - La interfaz consulta la clasificación **después** de enviar la puntuación;
   invertir ese orden reintroduce una condición de carrera.
+- `render.yaml` define el despliegue en Render (plan gratuito, `npm start`,
+  salud en `/health`). `MONGODB_URI` se marca `sync: false` para que se introduzca
+  en el panel y no viaje en el repositorio.
+- En el plan gratuito la instancia se duerme tras unos 15 minutos sin visitas; la
+  primera petición tarda en despertar. No es un fallo.
