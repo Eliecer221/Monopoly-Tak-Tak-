@@ -23,6 +23,9 @@
       </div>
     </div>
     <div class="topbar-actions">
+      <span class="account-chip" id="account-chip"></span>
+      <button id="btn-account" class="ghost-btn" type="button">Cuenta</button>
+      <button id="btn-store" class="ghost-btn store" type="button">Tienda</button>
       <button id="btn-rules" class="ghost-btn" type="button">Reglas</button>
       <button id="btn-save" class="ghost-btn" type="button">Guardar</button>
       <button id="btn-load" class="ghost-btn" type="button">Cargar</button>
@@ -132,6 +135,16 @@
 <!-- Modal genérico -->
 <div class="overlay" id="modal-overlay">
   <div class="modal" id="modal-content"></div>
+</div>
+
+<!-- Cuenta de usuario -->
+<div class="overlay" id="account-overlay">
+  <div class="modal" id="account-content"></div>
+</div>
+
+<!-- Tienda con pagos reales -->
+<div class="overlay" id="store-overlay">
+  <div class="modal wide" id="store-content"></div>
 </div>
 
 <!-- Reglas -->

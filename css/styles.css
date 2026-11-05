@@ -581,3 +581,65 @@ button, .space {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
 }
+
+/* ---------- Cuenta y tienda ---------- */
+.account-chip { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.account-chip .chip-name {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: "DM Mono", monospace;
+}
+.account-chip .chip-user { color: var(--muted); }
+.ghost-btn.store { border-color: rgba(255, 210, 63, 0.5); color: #ffe27a; }
+
+.modal.wide { max-width: 720px; width: 100%; }
+.auth-fields { display: grid; gap: 10px; margin: 12px 0; }
+.auth-fields input {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+}
+.auth-error { color: #ff8f9b; font-size: 13px; min-height: 18px; margin: 4px 0; }
+
+.wallet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+.wallet-item {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+.wallet-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.wallet-value { font-size: 18px; font-weight: 800; font-family: "DM Mono", monospace; color: #ffe27a; }
+
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 12px 0; }
+.shop-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+.shop-card.featured { border-color: rgba(255, 210, 63, 0.6); background: rgba(255, 210, 63, 0.08); }
+.shop-kind { font-size: 26px; }
+.shop-name { font-weight: 700; font-size: 14px; }
+.shop-price { font-family: "DM Mono", monospace; color: #ffe27a; font-size: 18px; font-weight: 800; }
+.shop-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.shop-off { font-size: 12px; color: var(--muted); }
+.primary-btn.small, .ghost-btn.small { padding: 8px 12px; font-size: 13px; min-height: 40px; }
+.modal-sub.legal { font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 620px) {
+  .account-chip { display: none; }
+  .shop-grid { grid-template-columns: 1fr 1fr; }
+  .auth-fields input { min-height: 44px; }
+}

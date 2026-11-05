@@ -21,5 +21,7 @@ jobs:
         run: npm run test:server
       - name: Pruebas de interfaz (jsdom)
         run: npm run test:ui
+      - name: Pruebas de cuentas, tienda y pagos
+        run: npm run test:store
       - name: Pruebas de integración (interfaz + API)
         run: node test/integration.mjs

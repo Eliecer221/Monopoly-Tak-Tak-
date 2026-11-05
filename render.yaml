@@ -20,6 +20,15 @@ services:
         value: "22"
       - key: MONGODB_DB
         value: monopoly_taktak
-      # Se introduce en el panel de Render, nunca en el repositorio.
+      # Se introducen en el panel de Render, nunca en el repositorio.
       - key: MONGODB_URI
+        sync: false
+      # Pagos reales. Sin estas claves la tienda avisa y no cobra nada.
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: MERCADOPAGO_ACCESS_TOKEN
+        sync: false
+      - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false

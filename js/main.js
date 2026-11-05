@@ -2,6 +2,7 @@
 
 import { Game, resetBoardState } from "./engine.js";
 import { UI } from "./ui.js";
+import { AccountUI } from "./account.js";
 import { TOKENS, TOKEN_NAMES, PLAYER_COLORS, AI_NAMES } from "./data.js";
 import { el } from "./utils.js";
 
@@ -144,7 +145,23 @@ function showFatal(err) {
 }
 
 // expuesto para las pruebas automatizadas
-window.TakTak = { Game, UI, resetBoardState, startGame, boot };
+window.TakTak = { Game, UI, AccountUI, resetBoardState, startGame, boot };
 
 bindSetup();
 renderPlayerConfig();
+
+// Cuentas y tienda: se inicializan siempre; si no hay backend, avisan al usarse.
+window.account = new AccountUI();
+
+// Al volver de la pasarela de pago (?compra=ok) se refresca la cartera.
+const params = new URLSearchParams(window.location.search);
+if (params.get("compra")) {
+  const estado = params.get("compra");
+  window.account.refresh().then(() => {
+    window.ui?.toast(
+      estado === "ok"
+        ? "Pago recibido. Tu saldo se acredita al confirmarse."
+        : "Compra cancelada."
+    );
+  });
+}

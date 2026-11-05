@@ -24,26 +24,49 @@ Sin dependencias de ejecución: abre `index.html` y juega.
 - **Subastas** cuando un jugador rechaza comprar.
 - **Tratos** entre jugadores: intercambio de propiedades y efectivo con previsualización.
 - **Guardado local** de la partida en el navegador.
+- **Cuentas de usuario reales** con cartera de monedas, gemas y dados.
+- **Tienda con pagos reales** (Stripe y MercadoPago): monedas, dados, gemas y pase
+  de temporada. El modelo de negocio está en **[MONETIZATION.md](MONETIZATION.md)**.
 - **Clasificación global** de mejores partidas, guardada en MongoDB Atlas.
 - Interfaz responsive con animaciones, registro de eventos y detalles de cada propiedad.
 
 ## 🚀 Cómo jugar
 
-### Con clasificación global (recomendado)
+### Con cuentas, tienda y clasificación (recomendado)
 
-El servidor sirve el juego y guarda las mejores partidas en MongoDB:
+El servidor sirve el juego, gestiona las cuentas, cobra en la tienda y guarda las
+mejores partidas en MongoDB:
 
 ```bash
 npm install
-MONGODB_URI="mongodb+srv://..." npm start
+MONGODB_URI="mongodb+srv://..." \
+STRIPE_SECRET_KEY="sk_test_..." STRIPE_WEBHOOK_SECRET="whsec_..." \
+npm start
 ```
 
-Abre <http://localhost:3000>. Cuando ganas, tu puntuación se envía sola y el modal
-muestra la clasificación. La cadena de conexión llega por variable de entorno y
-**nunca se guarda en el repositorio** (`.env` está en `.gitignore`; usa `.env.example`
-como plantilla).
+Abre <http://localhost:3000>. Crea tu cuenta, mira la tienda y, al ganar, tu
+puntuación se envía sola. Las claves llegan por variables de entorno y **nunca se
+guardan en el repositorio** (`.env` está en `.gitignore`; usa `.env.example` como
+plantilla).
 
-Sin `MONGODB_URI` el servidor funciona igual y la clasificación aparece como no disponible.
+Sin `MONGODB_URI` el servidor funciona igual: el juego se sirve y las cuentas
+quedan desactivadas. Para probar cuentas y tienda en local sin Atlas:
+
+```bash
+TAKTAK_MEMORY_DB=1 STRIPE_SECRET_KEY=sk_test_... npm start
+```
+
+### Cómo se cobra
+
+1. El jugador crea su cuenta y entra en la tienda.
+2. Elige un producto y el servidor crea la orden con **el precio del catálogo**
+   (nunca el que manda el navegador) y abre la pasarela de pago.
+3. El pago lo confirma el proveedor por **webhook firmado**.
+4. Solo entonces se acredita el saldo, y **una sola vez**, aunque el webhook se
+   repita.
+
+Los pasos para activar Stripe y MercadoPago están en
+**[MONETIZATION.md](MONETIZATION.md)**, sección 4.
 
 ### Solo el juego (sin backend)
 
@@ -61,6 +84,16 @@ Luego abre <http://localhost:8000> en el navegador.
 | --- | --- | --- |
 | `/api/leaderboard?limit=10` | GET | Devuelve las mejores puntuaciones (límite 1–50) |
 | `/api/scores` | POST | Guarda una puntuación `{name, netWorth, turns, players}` |
+| `/api/auth/signup` | POST | Crea una cuenta `{email, password, name}` y devuelve una sesión |
+| `/api/auth/login` | POST | Inicia sesión `{email, password}` |
+| `/api/auth/me` | GET | Devuelve el usuario y su cartera (requiere `Authorization: Bearer`) |
+| `/api/auth/logout` | POST | Cierra la sesión |
+| `/api/store/catalog` | GET | Catálogo de productos y estado de las pasarelas |
+| `/api/store/checkout` | POST | Crea la orden y la sesión de pago `{productId, provider}` |
+| `/api/store/orders` | GET | Órdenes del usuario |
+| `/api/store/transactions` | GET | Historial de compras del usuario |
+| `/api/payments/webhook/stripe` | POST | Webhook de Stripe (firma obligatoria) |
+| `/api/payments/webhook/mercadopago` | POST | Webhook de MercadoPago (firma obligatoria) |
 
 El servidor valida los datos, limita el tamaño de las peticiones y aplica un tope de
 10 envíos por minuto y dirección. Los archivos ocultos (`.env`, `.git`) nunca se sirven.
@@ -77,6 +110,7 @@ El servidor valida los datos, limita el tamaño de las peticiones y aplica un to
 | Crisis | 4 casillas que cobran al caer; el costo sube 25% cada 40 turnos |
 | Magnate | Aparece cada 12 turnos con un deal; aceptar o rechazar tiene consecuencias |
 | Bote | Simulado: 60% ganador, 40% casa. No mueve dinero real |
+| Tienda | Compra real de monedas, dados, gemas y pase con Stripe o MercadoPago |
 | Hipoteca | Recibes la mitad del precio; recuperar cuesta +10% |
 | Cárcel | Pagas $50, usas carta o sacas dobles; tras 3 turnos pagas |
 | Dobles | Repites turno; tres dobles seguidos te llevan a la cárcel |
@@ -90,7 +124,8 @@ El motor es agnóstico de la interfaz y se prueba de forma headless:
 npm run test:sim    # simulaciones headless del motor
 npm run test:server # servidor y API de clasificación
 npm run test:ui     # interfaz sobre jsdom
-node test/integration.mjs   # interfaz + servidor + clasificación, sin mocks
+node test/integration.mjs   # interfaz + servidor + clasificación + pagos
+npm run test:store  # cuentas, tienda y firmas de webhook
 ```
 
 La suite del motor juega 60 partidas completas con IA (verificando invariantes: dinero no
@@ -110,7 +145,12 @@ Las reglas completas, la tabla de precios, las 32 cartas, el diseño del tablero
 requisitos legales del sistema de pagos están en **[RULES.md](RULES.md)**.
 
 La prueba de integración arranca el servidor de verdad, envía la puntuación por HTTP y
-comprueba que se guarda y se muestra en el modal del ganador.
+comprueba que se guarda y se muestra en el modal del ganador. También juega el flujo
+completo de la tienda: registro, compra, webhook firmado, acreditación y cartera.
+
+La suite de tienda comprueba que un webhook con firma falsa **no** acredita saldo, que
+un webhook repetido **no** duplica monedas, que cada usuario ve solo sus compras y que
+sin pasarela configurada el checkout falla en vez de fingir un pago.
 
 ## 🗂️ Estructura
 
@@ -121,13 +161,20 @@ js/data.js         Tablero venezolano, fichas, precios y El Magnate
 js/cards.js        Cartas de Suerte y Caja Comunal
 js/engine.js       Motor de reglas, IA, subastas y tratos
 js/ui.js           Render del tablero y modales
-js/api.js          Cliente de la clasificación global
+js/api.js          Cliente de la API: clasificación, cuentas y tienda
+js/account.js      Interfaz de cuenta y tienda con pagos
+server/auth.mjs    Cuentas: registro, login y sesiones
+server/store.mjs   Catálogo, órdenes y acreditación de compras
+server/payments.mjs Stripe y MercadoPago: checkout y firmas
+server/db.mjs      Capa de datos: MongoDB o memoria
 js/main.js         Configuración y arranque
 server/server.mjs  Servidor HTTP y API de clasificación (MongoDB)
 test/sim.mjs       Pruebas headless del motor
 test/server.mjs    Pruebas del servidor y la API
 test/ui.mjs        Pruebas de interfaz con jsdom
+test/store.mjs     Pruebas de cuentas, tienda y pagos
 test/integration.mjs  Pruebas de integración de extremo a extremo
+MONETIZATION.md    Modelo de negocio: catálogo, precios y cómo cobrar
 ```
 
 ## ☁️ Despliegue en Render
@@ -159,9 +206,14 @@ a los datos: las puntuaciones siguen en Atlas.
 
 ## ⚖️ Aviso legal
 
-El **bote es una simulación**: el juego no cobra ni paga dinero real. Cualquier sistema
-de pago real necesita licencia de juego, KYC, AML y procesadores autorizados. Ver
-[RULES.md](RULES.md), sección 5. La temática es satírica y no es información periodística.
+La tienda **sí cobra dinero real** por contenido digital (monedas, dados, gemas y pase
+de temporada). Eso es comercio electrónico normal, no una apuesta.
+
+El **bote es una simulación**: el juego no cobra ni paga un bote con dinero real. Un
+bote real es juego/apuesta y necesita licencia de operador, KYC y AML. Ver
+[RULES.md](RULES.md), sección 5 y [MONETIZATION.md](MONETIZATION.md), sección 6.
+
+La temática es satírica y no es información periodística.
 
 ## 📄 Licencia
 

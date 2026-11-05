@@ -70,7 +70,8 @@ function main() {
   assert(validateScore({ name: "", netWorth: 10, turns: 1, players: 2 }).error, "nombre vacío aceptado");
   assert(validateScore({ name: "Ana", netWorth: -5, turns: 1, players: 2 }).error, "patrimonio negativo aceptado");
   assert(validateScore({ name: "Ana", netWorth: 10, turns: 1.5, players: 2 }).error, "turnos no enteros aceptados");
-  assert(validateScore({ name: "Ana", netWorth: 10, turns: 1, players: 5 }).error, "5 jugadores aceptados");
+  assert(validateScore({ name: "Ana", netWorth: 10, turns: 1, players: 9 }).error, "9 jugadores aceptados");
+  assert(validateScore({ name: "Ana", netWorth: 10, turns: 1, players: 8 }).value.players === 8, "8 jugadores rechazados");
   assert(validateScore({ name: "x".repeat(50), netWorth: 10, turns: 1, players: 2 }).value.name.length === 16, "nombre no recortado");
   assert(clampLimit("999") === 50, "límite alto no acotado");
   assert(clampLimit("0") === 1, "límite bajo no acotado");

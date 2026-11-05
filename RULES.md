@@ -339,10 +339,11 @@ Vista lineal del recorrido completo:
 
 ## 5. Sistema de pagos y reparto de premios
 
-> **Aviso importante.** El juego que incluye este repositorio **no procesa
-> dinero real**. El bote es una simulación contable para practicar el sistema.
-> Lo que sigue describe cómo funcionaría un sistema real, y qué hace falta para
-> que sea legal.
+> **Aviso importante.** El juego **cobra dinero real** en su tienda: monedas,
+> dados, gemas y pase de temporada, con Stripe y MercadoPago. Eso es comercio
+> electrónico normal. Lo que **no** hace es un bote con dinero real: el bote es
+> una simulación contable, porque un bote real es apuesta y exige licencia.
+> El modelo completo está en `MONETIZATION.md`.
 
 ### 5.1 Cómo funciona en el juego (simulado)
 
@@ -365,39 +366,48 @@ Ejemplo con 4 jugadores y buy-in de $5:
 | Ganador (60%) | $15 |
 | Casa (40%) | $10 |
 
-### 5.2 Cómo funcionaría de verdad
+### 5.2 Lo que sí está implementado: tienda con pagos reales
 
-- **Recaudación:** cada jugador paga su buy-in por un procesador autorizado
-  (Stripe, MercadoPago, PayPal). Nunca por transferencia directa entre
-  jugadores, para no mezclar fondos.
-- **Custodia:** el dinero del bote queda en una cuenta separada de la casa.
-- **Registro:** cada aporte y cada recarga se anotan con su identificador de
-  pago, hora y jugador.
-- **Reparto:** al terminar, el 60% va al ganador y el 40% a la casa, ambos por
-  el mismo procesador.
-- **Transparencia:** el jugador ve el bote total y su desglose en todo momento.
+El juego **sí cobra dinero real**, pero por **contenido digital**, no por apostar.
+Esta es la parte que ya funciona en el código (`server/store.mjs`,
+`server/payments.mjs`, `js/account.js`):
 
-### 5.3 Qué se necesita para que sea legal
-
-Este sistema **solo es legal con licencia de juego**. Sin licencia es ilegal.
-
-| Requisito | Para qué |
+| Pieza | Estado |
 |---|---|
-| **Licencia de juego** | Autorización del regulador del país donde opera. Sin esto, es juego ilegal. |
-| **KYC** (*Know Your Customer*) | Verificar la identidad de cada jugador y que sea mayor de edad. |
-| **AML** (*Anti-Money Laundering*) | Prevenir lavado de dinero: origen de fondos, reportes de operaciones sospechosas. |
-| **Procesadores autorizados** | Stripe, MercadoPago y similares solo operan con comercios legales y verificados. |
-| **Geolocalización** | Bloquear jugadores de jurisdicciones donde el juego está prohibido. |
+| Cuentas de usuario reales | Implementado: registro, login y sesiones |
+| Cartera (monedas, gemas, dados) | Implementado: se guarda en la base de datos |
+| Cobro con Stripe | Implementado: sesión de pago y webhook firmado |
+| Cobro con MercadoPago | Implementado: preferencia de pago y webhook firmado |
+| Acreditación del saldo | Implementada: solo con firma válida y una sola vez |
+| Historial de compras | Implementado: el jugador ve sus compras |
+
+El catálogo y los precios están en `MONETIZATION.md`. Vender monedas, dados,
+gemas o un pase de temporada es **comercio electrónico normal**, no una apuesta:
+no se paga para apostar y no hay premio en metálico.
+
+### 5.3 Por qué el bote sigue siendo simulado
+
+Un bote donde se paga para entrar y el ganador cobra es **juego con dinero real**.
+Eso exige licencia de operador, y es la línea que este proyecto no cruza.
+
+| Requisito del bote real | Para qué |
+|---|---|
+| **Licencia de juego** | Autorización del regulador (en Venezuela, la Comisión Nacional de Casinos). Sin esto, es juego ilegal. |
+| **KYC** (*Know Your Customer*) | Verificar identidad y mayoría de edad. |
+| **AML** (*Anti-Money Laundering*) | Prevenir lavado de dinero. |
+| **Custodia de fondos** | Cuenta separada para el dinero de los jugadores. |
+| **Geolocalización** | Bloquear jurisdicciones donde está prohibido. |
 | **Límites y autoexclusión** | Herramientas de juego responsable. |
 
-**Sin licencia, KYC, AML y procesadores autorizados, cobrar por jugar es
-ilegal.** No lo hagas. Usa el bote solo como simulación.
+**Sin licencia, KYC y AML, cobrar por jugar es ilegal.** Además, Stripe y
+MercadoPago cierran la cuenta al detectar apuestas sin licencia.
 
-### 5.4 Alternativa sin riesgo legal
+### 5.4 La vía limpia
 
-Si quieres jugar con dinero, la vía limpia es jugar **gratis** y apostar por
-fuera con un acuerdo privado entre amigos, sin que la app toque el dinero. La
-app nunca debería ser la que cobra o paga sin licencia.
+Juega **gratis**, cobra por **contenido digital** y deja el dinero real fuera de
+la mesa. Si algún día quieres un bote real, la ruta es obtener licencia, integrar
+un procesador autorizado y aplicar KYC y AML. Es un negocio distinto, con
+requisitos muy altos.
 
 ---
 

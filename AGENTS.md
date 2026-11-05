@@ -18,11 +18,18 @@ dependencias de ejecución.
 - Bote **simulado**: vive en `engine.js` (`contribute`, `potTotal`, `payout`) y
   se pinta en el panel lateral de `ui.js`. No mueve dinero real y la interfaz lo
   avisa. Ver `RULES.md` para los requisitos legales.
-- `js/api.js` — cliente de la clasificación global. `apiEnabled()` decide si hay
-  backend (variable `TAKTAK_API_BASE` o protocolo HTTP).
+- `js/api.js` — cliente de la API: clasificación, cuentas y tienda. `apiEnabled()`
+  decide si hay backend (variable `TAKTAK_API_BASE` o protocolo HTTP). El token de
+  sesión vive en `localStorage` y viaja en `Authorization: Bearer`.
+- `js/account.js` — interfaz de cuenta (registro, login, cartera) y de tienda.
+- `server/auth.mjs` — cuentas: contraseñas con scrypt y sal por usuario, sesiones.
+- `server/store.mjs` — catálogo, órdenes y acreditación de compras.
+- `server/payments.mjs` — Stripe y MercadoPago: checkout y verificación de firmas.
+- `server/db.mjs` — capa de datos: MongoDB o memoria (`TAKTAK_MEMORY_DB=1`).
 - `js/main.js` — configuración, guardado/carga y arranque.
-- `server/server.mjs` — servidor HTTP y API de clasificación. `createServer()`
-  acepta un `store` inyectable para las pruebas; sin `MONGODB_URI` responde 503.
+- `server/server.mjs` — servidor HTTP: juego, clasificación, cuentas y tienda.
+  `createServer()` acepta `store`, `db`, `env` y `fetchImpl` inyectables para las
+  pruebas. Sin `MONGODB_URI` (o `db`) las cuentas y la clasificación responden 503.
 
 ## Comandos
 
@@ -30,8 +37,10 @@ dependencias de ejecución.
 npm run test:sim    # simulaciones headless del motor
 npm run test:server # servidor y API de clasificación
 npm run test:ui     # pruebas de interfaz (jsdom)
-node test/integration.mjs  # interfaz + servidor + clasificación, sin mocks
-npm start           # juego + clasificación (requiere MONGODB_URI)
+npm run test:store  # cuentas, tienda y firmas de webhook
+node test/integration.mjs  # interfaz + servidor + clasificación + pagos
+npm start           # juego + cuentas + tienda (requiere MONGODB_URI)
+TAKTAK_MEMORY_DB=1 npm start  # cuentas y tienda en memoria, sin Atlas
 npm run serve:static # solo el juego, sin backend
 ```
 
@@ -46,8 +55,16 @@ npm run serve:static # solo el juego, sin backend
   crisis empeora con el tiempo. Es intencional, no un desbalance.
 - El Magnate Trumpista aparece cada `MAGNATE.everyTurns` turnos y pide una
   decisión (`type: "magnate"`) que hay que resolver con `decide("accept"|"reject")`.
-- El bote es simulado. **Nunca** conectar cobros reales sin licencia de juego,
-  KYC y AML (ver `RULES.md`, sección 5). No commitear claves ni cadenas de pago.
+- El bote es simulado. **Nunca** convertir el bote en apuesta real: exige licencia
+  de juego, KYC y AML (ver `RULES.md`, sección 5).
+- La tienda **sí** cobra dinero real por contenido digital. Reglas que no se
+  pueden romper: el precio sale del catálogo del servidor, nunca del navegador;
+  el saldo solo se acredita con la **firma verificada** del webhook; y
+  `creditOrder` es idempotente, así que un webhook repetido no duplica monedas.
+- Sin claves de pasarela el checkout devuelve error. Nunca debe fingir un pago.
+- Las claves de Stripe y MercadoPago viven solo en el entorno. `render.yaml` las
+  marca `sync: false`. No commitear ninguna.
+- El modelo de negocio y los pasos de activación están en `MONETIZATION.md`.
 - La cadena de conexión de MongoDB llega por variable de entorno (`MONGODB_URI`).
   Nunca debe escribirse en el repositorio: `.env` está ignorado. El servidor
   bloquea los archivos ocultos (`.env`, `.git`) y las rutas de escape.

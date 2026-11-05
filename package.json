@@ -2,15 +2,16 @@
   "name": "monopoly-tak-tak",
   "version": "1.0.0",
   "private": true,
-  "description": "Monopoly TAK TAK: clon del clásico juego de mesa para el navegador, con IA, subastas, tratos y clasificación global.",
+  "description": "Monopoly TAK TAK: juego de mesa para el navegador con cuentas de usuario, tienda y pagos reales.",
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
     "serve:static": "python3 -m http.server 8000",
-    "test": "node test/sim.mjs && node test/server.mjs",
+    "test": "node test/sim.mjs && node test/server.mjs && node test/store.mjs",
     "test:sim": "node test/sim.mjs",
     "test:ui": "node test/ui.mjs",
-    "test:server": "node test/server.mjs"
+    "test:server": "node test/server.mjs",
+    "test:store": "node test/store.mjs"
   },
   "dependencies": {
     "mongodb": "^6.10.0"
