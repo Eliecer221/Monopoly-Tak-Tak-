@@ -48,7 +48,11 @@ const fakeFetch = async (url, options) => {
 const server = createServer({
   store,
   db: createMemoryDb(),
-  env: { STRIPE_SECRET_KEY: "sk_test_int", STRIPE_WEBHOOK_SECRET },
+  env: {
+    STRIPE_SECRET_KEY: "sk_test_int",
+    STRIPE_WEBHOOK_SECRET,
+    ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com",
+  },
   fetchImpl: fakeFetch,
 });
 await new Promise((r) => server.listen(0, r));

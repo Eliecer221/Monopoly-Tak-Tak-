@@ -593,6 +593,8 @@ button, .space {
 }
 .account-chip .chip-user { color: var(--muted); }
 .ghost-btn.store { border-color: rgba(255, 210, 63, 0.5); color: #ffe27a; }
+.ghost-btn.glenis { border-color: rgba(120, 200, 255, 0.5); color: #9fdcff; }
+.ghost-btn.glenis:hover { background: rgba(120, 200, 255, 0.16); }
 
 .modal.wide { max-width: 720px; width: 100%; }
 .auth-fields { display: grid; gap: 10px; margin: 12px 0; }

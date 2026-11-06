@@ -8,6 +8,27 @@ import { WELCOME_COINS } from "./store.mjs";
 const SCRYPT_KEYLEN = 64;
 const SESSION_DAYS = 30;
 
+// El registro es solo con Gmail. Menos correos desechables y una identidad que
+// el usuario ya tiene. Se puede ampliar con ALLOWED_EMAIL_DOMAINS.
+export const DEFAULT_ALLOWED_DOMAINS = ["gmail.com"];
+
+// Cuenta madre: la única que administra dinero sin token compartido. Se puede
+// cambiar con ADMIN_EMAIL.
+export const DEFAULT_ADMIN_EMAIL = "eliecerdepablos@gmail.com";
+
+export function parseAllowedDomains(value) {
+  const list = String(value || "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean);
+  return list.length ? list : DEFAULT_ALLOWED_DOMAINS;
+}
+
+export function emailDomain(email) {
+  const at = normalizeEmail(email).lastIndexOf("@");
+  return at === -1 ? "" : normalizeEmail(email).slice(at + 1);
+}
+
 export function hashPassword(password, salt = crypto.randomBytes(16).toString("hex")) {
   const hash = crypto.scryptSync(password, salt, SCRYPT_KEYLEN).toString("hex");
   return { salt, hash };
@@ -29,25 +50,30 @@ export function normalizeEmail(email) {
   return String(email || "").trim().toLowerCase();
 }
 
-export function validateSignup(body) {
+export function validateSignup(body, { allowedDomains = DEFAULT_ALLOWED_DOMAINS } = {}) {
   const email = normalizeEmail(body?.email);
   const password = String(body?.password || "");
   const name = String(body?.name || "").trim().slice(0, 24);
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return { error: "correo inválido" };
+  if (!allowedDomains.includes(emailDomain(email))) {
+    return { error: `regístrate con tu correo de ${allowedDomains.map((d) => "@" + d).join(" o ")}` };
+  }
   if (password.length < 8) return { error: "la contraseña necesita 8 caracteres o más" };
   if (!name) return { error: "nombre requerido" };
   return { value: { email, password, name } };
 }
 
 export class Accounts {
-  constructor(db) {
+  constructor(db, { allowedDomains = DEFAULT_ALLOWED_DOMAINS, adminEmails = [] } = {}) {
     this.db = db;
     this.users = db.collection("users");
     this.sessions = db.collection("sessions");
+    this.allowedDomains = allowedDomains;
+    this.adminEmails = adminEmails.map(normalizeEmail).filter(Boolean);
   }
 
   async signup(body) {
-    const check = validateSignup(body);
+    const check = validateSignup(body, { allowedDomains: this.allowedDomains });
     if (check.error) return check;
     const { email, password, name } = check.value;
     const existing = await this.users.findOne({ email });
@@ -67,6 +93,8 @@ export class Accounts {
       spentCents: 0,
       spentLog: [],
       entitlement: "free",
+      // El rol decide quién administra. La cuenta madre entra como admin.
+      role: this.adminEmails.includes(email) ? "admin" : "user",
       // Cumplimiento: sin correo verificado y KYC aprobado no se compra ni retira.
       emailVerified: false,
       phoneVerified: false,
@@ -76,6 +104,17 @@ export class Accounts {
     await this.users.insertOne(user);
     const token = await this.startSession(user.id);
     return { value: { user: publicUser(user), token } };
+  }
+
+  // Cambia el rol de una cuenta. Lo usa la cuenta madre para dar acceso de
+  // administración a alguien de confianza, o para retirárselo.
+  async setRole({ email, role }) {
+    const target = normalizeEmail(email);
+    if (!["user", "admin"].includes(role)) return { error: "rol inválido" };
+    const user = await this.users.findOne({ email: target });
+    if (!user) return { error: "esa cuenta no existe" };
+    await this.users.updateOne({ id: user.id }, { $set: { role } });
+    return { value: { email: target, role } };
   }
 
   async login(body) {
@@ -179,6 +218,7 @@ export function publicUser(user) {
     stats: user.stats,
     purchases: user.purchases || 0,
     entitlement: user.entitlement || "free",
+    role: user.role === "admin" ? "admin" : "user",
     emailVerified: Boolean(user.emailVerified),
     phoneVerified: Boolean(user.phoneVerified),
     kyc: user.kyc || { status: "none" },

@@ -16,7 +16,17 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { MongoClient } from "mongodb";
 import { createMemoryDb, createMongoDb, ensureIndexes } from "./db.mjs";
-import { Accounts, publicUser } from "./auth.mjs";
+import { Accounts, publicUser, parseAllowedDomains, DEFAULT_ADMIN_EMAIL } from "./auth.mjs";
+import { visionProviderFromEnv, textProviderFromEnv } from "./ai-receipts.mjs";
+import {
+  GLENIS_NAME,
+  GLENIS_ROLE,
+  GlenisLog,
+  buildWithdrawalCase,
+  glenisEnabled,
+  explainWithdrawal,
+  GLENIS_MAX_AUTO_APPROVALS_PER_DAY,
+} from "./glenis.mjs";
 import { Store, catalog, productById } from "./store.mjs";
 import { Kyc, checkPurchaseAllowed, selfExclude, limitsFor } from "./kyc.mjs";
 import { ReceiptValidator } from "./ai-receipts.mjs";
@@ -24,7 +34,7 @@ import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinli
 import { verifyTotp } from "./totp.mjs";
 import { createPool, migrate, LedgerRepository } from "./ledger.mjs";
 import { OutboxWorker } from "./outbox-worker.mjs";
-import { FinancialPolicy } from "./policy.mjs";
+import { FinancialPolicy, WITHDRAWAL_LIMITS } from "./policy.mjs";
 import { createAirtmProvider } from "./airtm.mjs";
 import { checkOperatorPayout } from "./operator.mjs";
 import {
@@ -167,6 +177,12 @@ export function createServer({
   // exigen un flag explícito además del libro contable. Sin él, la ruta responde
   // 503 y el juego funciona igual sin apostar.
   const realMoneyRounds = env.REAL_MONEY_ROUNDS === "1";
+  // Registro solo con los dominios permitidos (Gmail por defecto).
+  const allowedDomains = parseAllowedDomains(env.ALLOWED_EMAIL_DOMAINS);
+  // Cuentas madre: administran dinero con su propia sesión, sin token compartido.
+  const adminEmails = [DEFAULT_ADMIN_EMAIL, ...(env.ADMIN_EMAILS || "").split(",")]
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 
   // Emite en el libro las monedas de una compra ya pagada. Si el libro no está
   // configurado, la compra sigue funcionando con el saldo de Mongo.
@@ -206,7 +222,21 @@ export function createServer({
 
   async function accounts() {
     const d = await getDb();
-    return d ? new Accounts(d) : null;
+    return d ? new Accounts(d, { allowedDomains, adminEmails }) : null;
+  }
+
+  // GLENIS: registro de decisiones y ayuda al administrador.
+  async function glenisLog() {
+    const d = await getDb();
+    return d ? new GlenisLog(d) : null;
+  }
+
+  // Un administrador es la cuenta madre o alguien a quien ella dio el rol.
+  // Se acepta además el token de administrador, para no romper lo que ya existe.
+  function isAdmin(req, session) {
+    if (session?.user?.role === "admin") return true;
+    const token = req.headers["x-admin-token"];
+    return Boolean(env.ADMIN_TOKEN) && token === env.ADMIN_TOKEN;
   }
 
   async function shop() {
@@ -256,6 +286,18 @@ export function createServer({
     return { user, acc, token };
   }
 
+  // Acceso de administrador: sirve la cuenta madre (rol admin) o el token de
+  // administrador. Devuelve la sesión si la hay, o null y ya respondió 403.
+  async function requireAdminAccess(req, res) {
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : "";
+    const acc = await accounts();
+    const user = acc ? await acc.userForToken(token) : null;
+    if (isAdmin(req, user ? { user } : null)) return { user };
+    send(res, 403, { error: "no autorizado" });
+    return null;
+  }
+
   const server = http.createServer(async (req, res) => {
     const { pathname, searchParams } = new URL(req.url, "http://localhost");
 
@@ -280,6 +322,14 @@ export function createServer({
           return { channel: op.channel, configured: op.ok };
         })(),
         airtm: { enabled: Boolean(airtmProvider?.enabled), mode: airtmProvider?.name || "desconocido" },
+        glenis: {
+          name: GLENIS_NAME,
+          role: GLENIS_ROLE,
+          enabled: glenisEnabled(env),
+          vision: Boolean(visionProviderFromEnv(env)),
+          text: Boolean(textProviderFromEnv(env)),
+        },
+        allowedEmailDomains: allowedDomains,
       });
     }
 
@@ -352,11 +402,7 @@ export function createServer({
 
       // Conciliación: solo administrador.
       if (pathname === "/api/ledger/reconcile" && req.method === "POST") {
-        try {
-          financialPolicy.requireAdmin(req.headers["x-admin-token"]);
-        } catch (err) {
-          return send(res, 403, { error: err.message });
-        }
+        if (!(await requireAdminAccess(req, res))) return;
         try {
           const result = await ledgerRepo.reconcile();
           await ledgerRepo.audit({ actorId: "admin", action: "reconcile", detail: { ok: result.ok } });
@@ -657,10 +703,7 @@ export function createServer({
 
     if (pathname === "/api/kyc/decide" && req.method === "POST") {
       // Solo el administrador decide. Se protege con ADMIN_TOKEN.
-      const token = req.headers["x-admin-token"];
-      if (!env.ADMIN_TOKEN || token !== env.ADMIN_TOKEN) {
-        return send(res, 403, { error: "no autorizado" });
-      }
+      if (!(await requireAdminAccess(req, res))) return;
       const parsed = await readBody(req);
       if (parsed.error) return send(res, 400, { error: parsed.error });
       const svc = await kycService();
@@ -725,19 +768,177 @@ export function createServer({
         at: { $gte: new Date(Date.now() - 864e5).toISOString() },
       });
       const review = await validator.review({ order, image, declaredReference: reference, user: session.user, attemptsToday });
-      if (review.verdict === "approved") {
+
+      // GLENIS deja de aprobar sola cuando el usuario ya aprobó varias hoy:
+      // una racha de comprobantes seguidos es señal de abuso.
+      let verdict = review.verdict;
+      let reasons = review.reasons;
+      const log = await glenisLog();
+      if (verdict === "approved" && attemptsToday >= GLENIS_MAX_AUTO_APPROVALS_PER_DAY) {
+        verdict = "manual_review";
+        reasons = [...reasons, `${GLENIS_NAME}: pasó el límite de aprobaciones automáticas del día`];
+      }
+
+      if (verdict === "approved") {
         const credited = await s.creditOrder(order.id, `zinli:${review.imageHash.slice(0, 16)}`);
         await mintOrderCoins(order, credited);
-        return send(res, 200, { verdict: "approved", score: review.score, reasons: review.reasons });
       }
-      return send(res, 200, { verdict: review.verdict, score: review.score, reasons: review.reasons });
+      if (log) {
+        await log.record({
+          actor: GLENIS_NAME,
+          action: "receipt.review",
+          target: order.id,
+          decision: verdict,
+          score: review.score,
+          reasons,
+          detail: { provider: validator.provider?.name || null },
+        });
+      }
+      return send(res, 200, { verdict, score: review.score, reasons });
+    }
+
+    // ---------- GLENIS: la asistente ----------
+    // Estado: lo que sabe hacer y con qué proveedor de visión cuenta.
+    if (pathname === "/api/glenis/status" && req.method === "GET") {
+      const vision = visionProviderFromEnv(env);
+      const text = textProviderFromEnv(env);
+      return send(res, 200, {
+        name: GLENIS_NAME,
+        role: GLENIS_ROLE,
+        enabled: glenisEnabled(env),
+        // Visión lee el comprobante; texto redacta el resumen. Pueden ser
+        // proveedores distintos.
+        vision: vision ? vision.name : null,
+        text: text ? text.name : null,
+        // Solo la forma de la configuración, nunca la clave.
+        autoApproveLimit: GLENIS_MAX_AUTO_APPROVALS_PER_DAY,
+      });
+    }
+
+    // Registro de decisiones de GLENIS. Solo el administrador lo ve.
+    if (pathname === "/api/glenis/log" && req.method === "GET") {
+      if (!(await requireAdminAccess(req, res))) return;
+      const log = await glenisLog();
+      if (!log) return send(res, 503, { error: "GLENIS no configurada" });
+      return send(res, 200, { entries: await log.recent(50), summary: await log.summary() });
+    }
+
+    // Expedientes de retiro: GLENIS reúne las pruebas, el administrador decide.
+    if (pathname === "/api/glenis/withdrawals" && req.method === "GET") {
+      if (!(await requireAdminAccess(req, res))) return;
+      const d = await getDb();
+      if (!d) return send(res, 503, { error: "datos no configurados" });
+      const pending = await d
+        .collection("withdrawals")
+        .find({ status: { $in: ["requested", "processing"] } })
+        .sort({ at: -1 })
+        .limit(50)
+        .toArray();
+      const cases = [];
+      for (const w of pending) {
+        const user = await d.collection("users").findOne({ id: w.userId });
+        const prior = await d
+          .collection("withdrawals")
+          .find({ userId: w.userId, id: { $ne: w.id } })
+          .toArray();
+        let totals = { day: 0, week: 0, month: 0 };
+        if (ledgerRepo) {
+          try { totals = await ledgerRepo.withdrawalTotals(w.userId); } catch { /* sin libro */ }
+        }
+        const kase = await buildWithdrawalCase({
+          withdrawal: w,
+          user,
+          totals,
+          limits: WITHDRAWAL_LIMITS,
+          priorWithdrawals: prior,
+        });
+        // GLENIS lo cuenta en palabras, además de las señales.
+        const said = await explainWithdrawal({ case: kase, env });
+        cases.push({ ...kase, explanation: said.text, explainedBy: said.provider });
+      }
+      return send(res, 200, { cases });
+    }
+
+    // Aprobar o rechazar un comprobante. Queda en el registro de GLENIS.
+    if (pathname === "/api/glenis/decide" && req.method === "POST") {
+      const access = await requireAdminAccess(req, res);
+      if (!access) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const { kind, id, approve, note = "" } = parsed.value || {};
+      const actor = access.user?.email || "admin";
+      const log = await glenisLog();
+
+      if (kind === "receipt") {
+        const s = await shop();
+        const order = await s.getOrder(id);
+        if (!order) return send(res, 404, { error: "orden desconocida" });
+        if (approve) {
+          const credited = await s.creditOrder(order.id, "glenis:manual");
+          await mintOrderCoins(order, credited);
+        } else {
+          await s.orders.updateOne({ id: order.id }, { $set: { status: "rejected" } });
+        }
+        if (log) {
+          await log.record({
+            actor,
+            action: "receipt.decide",
+            target: order.id,
+            decision: approve ? "approved" : "rejected",
+            reasons: [note || "decisión del administrador"],
+          });
+        }
+        return send(res, 200, { ok: true, status: approve ? "paid" : "rejected" });
+      }
+
+      if (kind === "withdrawal") {
+        const svc = await zinliService();
+        const result = await svc.decide(id, approve ? "paid" : "rejected", note);
+        if (result.error) return send(res, 400, { error: result.error });
+        if (log) {
+          await log.record({
+            actor,
+            action: "withdrawal.decide",
+            target: id,
+            decision: approve ? "paid" : "rejected",
+            reasons: [note || "decisión del administrador"],
+          });
+        }
+        return send(res, 200, result.value);
+      }
+
+      return send(res, 400, { error: "tipo desconocido" });
+    }
+
+    // La cuenta madre da o quita el rol de administrador.
+    if (pathname === "/api/glenis/role" && req.method === "POST") {
+      const access = await requireAdminAccess(req, res);
+      if (!access) return;
+      // Solo la cuenta madre (rol admin) reparte roles, no el token compartido.
+      if (access.user?.role !== "admin") {
+        return send(res, 403, { error: "solo la cuenta madre reparte roles" });
+      }
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const acc = await accounts();
+      const result = await acc.setRole({ email: parsed.value?.email, role: parsed.value?.role });
+      if (result.error) return send(res, 400, { error: result.error });
+      const log = await glenisLog();
+      if (log) {
+        await log.record({
+          actor: access.user.email,
+          action: "role.set",
+          target: parsed.value?.email,
+          decision: parsed.value?.role,
+          reasons: ["cambio de rol por la cuenta madre"],
+        });
+      }
+      return send(res, 200, result.value);
     }
 
     // ---------- revisión manual de comprobantes (administrador) ----------
     if (pathname === "/api/admin/receipts" && req.method === "GET") {
-      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
-        return send(res, 403, { error: "no autorizado" });
-      }
+      if (!(await requireAdminAccess(req, res))) return;
       const d = await getDb();
       const rows = await d
         .collection("receipts")
@@ -749,9 +950,7 @@ export function createServer({
     }
 
     if (pathname === "/api/admin/receipts/decide" && req.method === "POST") {
-      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
-        return send(res, 403, { error: "no autorizado" });
-      }
+      if (!(await requireAdminAccess(req, res))) return;
       const parsed = await readBody(req);
       if (parsed.error) return send(res, 400, { error: parsed.error });
       const { orderId, approve } = parsed.value || {};
@@ -799,9 +998,7 @@ export function createServer({
     }
 
     if (pathname === "/api/admin/withdrawals/decide" && req.method === "POST") {
-      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
-        return send(res, 403, { error: "no autorizado" });
-      }
+      if (!(await requireAdminAccess(req, res))) return;
       const parsed = await readBody(req);
       if (parsed.error) return send(res, 400, { error: parsed.error });
       const svc = await zinliService();

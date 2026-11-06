@@ -169,6 +169,7 @@ async function main() {
 
   // ---------- servidor: flujo completo ----------
   const env = {
+    ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com",
     TAKTAK_DEV_CODES: "1",
     ADMIN_TOKEN: "admin-secreto",
     ZINLI_RECEIVER_EMAIL: "pagos@taktak.com",

@@ -155,6 +155,60 @@ async function callOpenAI({ image, apiKey, fetchImpl = fetch }) {
   return { value: normalizeReading(parseModelJson(data?.choices?.[0]?.message?.content)) };
 }
 
+// Groq: modelos abiertos, respuesta muy rápida y con visión en los Llama 4.
+// Si el modelo principal no está disponible, se reintenta con uno alternativo.
+export const GROQ_MODELS = ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.2-11b-vision-preview"];
+
+async function callGroqModel({ image, apiKey, fetchImpl, model }) {
+  const res = await fetchImpl("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: PROMPT },
+            { type: "image_url", image_url: { url: image } },
+          ],
+        },
+      ],
+      max_tokens: 400,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: data?.error?.message || `Groq rechazó la petición (${model})` };
+  return { value: normalizeReading(parseModelJson(data?.choices?.[0]?.message?.content)) };
+}
+
+async function callGroq({ image, apiKey, fetchImpl = fetch }) {
+  let lastError = "Groq no respondió";
+  for (const model of GROQ_MODELS) {
+    const result = await callGroqModel({ image, apiKey, fetchImpl, model });
+    if (!result.error) return result;
+    lastError = result.error;
+  }
+  return { error: lastError };
+}
+
+// Groq en modo texto: se usa para los resúmenes de GLENIS, no para leer
+// imágenes (la clave disponible no tiene modelos de visión).
+export async function callGroqText({ prompt, apiKey, fetchImpl = fetch, model = "openai/gpt-oss-120b" }) {
+  const res = await fetchImpl("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: String(prompt) }],
+      max_tokens: 500,
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return { error: data?.error?.message || "Groq rechazó la petición" };
+  return { value: data?.choices?.[0]?.message?.content || "" };
+}
+
 async function callGemini({ image, apiKey, fetchImpl = fetch }) {
   const [meta, b64] = String(image).split(",");
   const mime = (meta.match(/data:(.*?);/) || [])[1] || "image/png";
@@ -205,9 +259,21 @@ async function callAnthropic({ image, apiKey, fetchImpl = fetch }) {
   return { value: normalizeReading(parseModelJson(data?.content?.[0]?.text)) };
 }
 
-export const PROVIDER_CALLS = { openai: callOpenAI, gemini: callGemini, anthropic: callAnthropic };
+export const PROVIDER_CALLS = { openai: callOpenAI, gemini: callGemini, anthropic: callAnthropic, groq: callGroq };
 
-export function aiProviderFromEnv(env = process.env) {
+// Visión: leer el comprobante de una imagen. Groq queda fuera a propósito: los
+// modelos de visión no están disponibles en todas las cuentas, y aquí no lo
+// están. Un proveedor de texto no puede leer una captura.
+export function visionProviderFromEnv(env = process.env) {
+  if (env.OPENAI_API_KEY) return { name: "openai", apiKey: env.OPENAI_API_KEY };
+  if (env.GEMINI_API_KEY) return { name: "gemini", apiKey: env.GEMINI_API_KEY };
+  if (env.ANTHROPIC_API_KEY) return { name: "anthropic", apiKey: env.ANTHROPIC_API_KEY };
+  return null;
+}
+
+// Texto: para que GLENIS explique lo que ve. Aquí sí entra Groq.
+export function textProviderFromEnv(env = process.env) {
+  if (env.GROQ_API_KEY) return { name: "groq", apiKey: env.GROQ_API_KEY };
   if (env.OPENAI_API_KEY) return { name: "openai", apiKey: env.OPENAI_API_KEY };
   if (env.GEMINI_API_KEY) return { name: "gemini", apiKey: env.GEMINI_API_KEY };
   if (env.ANTHROPIC_API_KEY) return { name: "anthropic", apiKey: env.ANTHROPIC_API_KEY };
@@ -222,7 +288,7 @@ export class ReceiptValidator {
     this.receipts = db.collection("receipts");
     this.env = env;
     this.fetchImpl = fetchImpl;
-    this.provider = aiProviderFromEnv(env);
+    this.provider = visionProviderFromEnv(env);
   }
 
   get available() {

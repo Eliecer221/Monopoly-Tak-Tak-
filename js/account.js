@@ -9,6 +9,11 @@ import {
   fetchCatalog,
   fetchTransactions,
   getToken,
+  glenisDecide,
+  glenisLog,
+  glenisSetRole,
+  glenisStatus,
+  glenisWithdrawals,
   login,
   logout,
   me,
@@ -28,8 +33,16 @@ export class AccountUI {
   bind() {
     const accountBtn = document.getElementById("btn-account");
     const storeBtn = document.getElementById("btn-store");
+    const glenisBtn = document.getElementById("btn-glenis");
     if (accountBtn) accountBtn.addEventListener("click", () => this.openAccount());
     if (storeBtn) storeBtn.addEventListener("click", () => this.openStore());
+    if (glenisBtn) glenisBtn.addEventListener("click", () => this.openGlenis());
+    const glenisOverlay = document.getElementById("glenis-overlay");
+    if (glenisOverlay) {
+      glenisOverlay.addEventListener("click", (e) => {
+        if (e.target.id === "glenis-overlay") glenisOverlay.classList.remove("show");
+      });
+    }
     for (const btn of document.querySelectorAll("[data-close-account]")) {
       btn.addEventListener("click", (e) => e.target.closest(".overlay").classList.remove("show"));
     }
@@ -63,6 +76,9 @@ export class AccountUI {
     const chip = document.getElementById("account-chip");
     if (!chip) return;
     chip.innerHTML = "";
+    // El botón de GLENIS solo lo ve quien administra.
+    const glenisBtn = document.getElementById("btn-glenis");
+    if (glenisBtn) glenisBtn.hidden = this.user?.role !== "admin";
     if (this.user) {
       chip.append(
         el("span", { class: "chip-name", text: `🪙 ${fmt(this.user.wallet.coins)}` }),
@@ -92,10 +108,17 @@ export class AccountUI {
     const title = el("h2", { class: "modal-title", text: "Tu cuenta TAK TAK" });
     const sub = el("p", {
       class: "modal-sub",
-      text: "Crea una cuenta para guardar tu cartera y comprar en la tienda. El juego es gratis.",
+      text:
+        mode === "signup"
+          ? "Regístrate con tu correo de Gmail para guardar tu cartera y comprar en la tienda. El juego es gratis."
+          : "Entra con tu correo y contraseña.",
     });
 
-    const email = el("input", { type: "email", placeholder: "tu@correo.com", autocomplete: "email" });
+    const email = el("input", {
+      type: "email",
+      placeholder: mode === "signup" ? "tucorreo@gmail.com" : "tu@correo.com",
+      autocomplete: "email",
+    });
     const password = el("input", { type: "password", placeholder: "Contraseña (8+ caracteres)", autocomplete: "current-password" });
     const name = el("input", { type: "text", placeholder: "Tu nombre", maxlength: "24" });
 
@@ -169,6 +192,8 @@ export class AccountUI {
 
     const store = el("button", { class: "primary-btn", type: "button", text: "Ir a la tienda" });
     store.addEventListener("click", () => this.openStore());
+    const glenis = el("button", { class: "ghost-btn", type: "button", text: "🤖 GLENIS" });
+    glenis.addEventListener("click", () => this.openGlenis());
     const out = el("button", { class: "ghost-btn", type: "button", text: "Cerrar sesión" });
     out.addEventListener("click", async () => {
       try {
@@ -182,7 +207,9 @@ export class AccountUI {
       document.getElementById("account-overlay").classList.remove("show");
       this.toast("Sesión cerrada");
     });
-    box.append(el("div", { class: "modal-actions" }, [store, out]));
+    const actions = [store, out];
+    if (u.role === "admin") actions.unshift(glenis);
+    box.append(el("div", { class: "modal-actions" }, actions));
   }
 
   // ---------- tienda ----------
@@ -287,6 +314,177 @@ export class AccountUI {
       window.location.href = data.url;
     } catch (err) {
       this.toast(err.message || "No se pudo iniciar el pago");
+    }
+  }
+
+  // ---------- GLENIS: consola del administrador ----------
+  async openGlenis() {
+    if (!apiEnabled()) {
+      this.toast("GLENIS necesita el servidor con base de datos.");
+      return;
+    }
+    if (this.user?.role !== "admin") {
+      this.toast("Solo la cuenta madre y sus administradores entran aquí.");
+      return;
+    }
+    document.getElementById("glenis-overlay").classList.add("show");
+    const box = document.getElementById("glenis-content");
+    box.innerHTML = "";
+    box.append(el("p", { class: "modal-sub", text: "GLENIS está revisando los pagos…" }));
+    try {
+      const [status, log, withdrawals] = await Promise.all([
+        glenisStatus(),
+        glenisLog(),
+        glenisWithdrawals(),
+      ]);
+      this.glenis = { status, log, withdrawals };
+    } catch (err) {
+      box.innerHTML = "";
+      box.append(el("p", { class: "auth-error", text: err.message || "GLENIS no respondió" }));
+      return;
+    }
+    this.renderGlenis();
+  }
+
+  renderGlenis() {
+    const box = document.getElementById("glenis-content");
+    const { status, log, withdrawals } = this.glenis;
+    box.innerHTML = "";
+
+    const vision = status.vision
+      ? `lee los comprobantes con ${status.vision}`
+      : "sin lector de comprobantes";
+    const text = status.text ? `redacta con ${status.text}` : "sin redacción propia";
+    if (!status.vision) {
+      box.append(
+        el("p", {
+          class: "auth-error",
+          text:
+            "GLENIS no tiene lector de comprobantes: sin una clave de visión (OpenAI, Gemini o Anthropic), no puede leer las capturas y TODOS los pagos van a revisión manual. La clave de Groq sirve para redactar, no para leer imágenes.",
+        })
+      );
+    }
+
+    box.append(
+      el("h2", { class: "modal-title", text: "🤖 GLENIS" }),
+      el("p", {
+        class: "modal-sub",
+        text: `Asistente de pagos y control. ${status.enabled ? "Encendida" : "Apagada"}: ${vision}, ${text}.`,
+      }),
+      el("p", {
+        class: "modal-note",
+        text: `GLENIS valida los comprobantes y arma el expediente de cada retiro, pero no paga sola: tú decides lo irreversible. Aprueba hasta ${status.autoApproveLimit} comprobantes al día por su cuenta; al pasarlos, todo va a revisión.`,
+      })
+    );
+
+    const s = log.summary || {};
+    box.append(
+      el("div", { class: "wallet-grid" }, [
+        el("div", { class: "wallet-item" }, [
+          el("span", { class: "wallet-label", text: "Decisiones" }),
+          el("span", { class: "wallet-value", text: `${s.total || 0}` }),
+        ]),
+        el("div", { class: "wallet-item" }, [
+          el("span", { class: "wallet-label", text: "Aprobadas" }),
+          el("span", { class: "wallet-value", text: `${s.approved || 0}` }),
+        ]),
+        el("div", { class: "wallet-item" }, [
+          el("span", { class: "wallet-label", text: "Rechazadas" }),
+          el("span", { class: "wallet-value", text: `${s.rejected || 0}` }),
+        ]),
+        el("div", { class: "wallet-item" }, [
+          el("span", { class: "wallet-label", text: "A revisar" }),
+          el("span", { class: "wallet-value", text: `${s.manual || 0}` }),
+        ]),
+      ])
+    );
+
+    // Expedientes de retiro.
+    const cases = withdrawals.cases || [];
+    box.append(el("h3", { class: "modal-sub", text: `Retiros pendientes (${cases.length})` }));
+    if (!cases.length) {
+      box.append(el("p", { class: "modal-note", text: "No hay retiros esperando decisión." }));
+    }
+    for (const c of cases) {
+      const card = el("div", { class: "shop-card" }, [
+        el("div", { class: "shop-name", text: `${c.email} · 🪙 ${fmt(c.gross)}` }),
+        el("div", {
+          class: "shop-price",
+          text: `Recibe ${fmt(c.net)} · confianza ${(c.score * 100).toFixed(0)}%`,
+        }),
+      ]);
+      if (c.risks.length) {
+        card.append(el("p", { class: "auth-error", text: "Señales: " + c.risks.join("; ") }));
+      } else {
+        card.append(el("p", { class: "modal-note", text: "Sin señales de riesgo. Recomendación: parece correcto." }));
+      }
+      if (c.explanation) {
+        card.append(el("p", { class: "modal-note", text: `GLENIS: ${c.explanation}` }));
+      }
+      const actions = el("div", { class: "shop-actions" });
+      const pay = el("button", { class: "primary-btn small", type: "button", text: "Marcar pagado" });
+      pay.addEventListener("click", () => this.decideGlenis("withdrawal", c.id, true, "pagado por el administrador"));
+      const no = el("button", { class: "ghost-btn small danger", type: "button", text: "Rechazar" });
+      no.addEventListener("click", () => this.decideGlenis("withdrawal", c.id, false, "rechazado por el administrador"));
+      actions.append(pay, no);
+      card.append(actions);
+      box.append(card);
+    }
+
+    // Dar o quitar el rol de administrador.
+    const roleBox = el("div", { class: "field" });
+    const roleInput = el("input", { type: "email", placeholder: "correo@gmail.com" });
+    const roleBtn = el("button", { class: "ghost-btn small", type: "button", text: "Hacer administrador" });
+    roleBtn.addEventListener("click", async () => {
+      try {
+        await glenisSetRole({ email: roleInput.value, role: "admin" });
+        this.toast("Rol de administrador concedido");
+        this.openGlenis();
+      } catch (err) {
+        this.toast(err.message || "No se pudo cambiar el rol");
+      }
+    });
+    roleBox.append(el("span", { text: "Dar acceso de administración" }), roleInput, roleBtn);
+    box.append(el("h3", { class: "modal-sub", text: "Administradores" }), roleBox);
+
+    // Registro de decisiones.
+    const entries = log.entries || [];
+    box.append(el("h3", { class: "modal-sub", text: "Registro de GLENIS" }));
+    if (!entries.length) {
+      box.append(el("p", { class: "modal-note", text: "Todavía no hay decisiones registradas." }));
+    }
+    const table = el("table", { class: "rent-table" });
+    table.append(
+      el("tr", {}, [
+        el("th", { text: "Cuándo" }),
+        el("th", { text: "Quién" }),
+        el("th", { text: "Qué" }),
+        el("th", { text: "Decisión" }),
+        el("th", { text: "Motivo" }),
+      ])
+    );
+    for (const e of entries) {
+      table.append(
+        el("tr", {}, [
+          el("td", { text: new Date(e.at).toLocaleString("es-VE") }),
+          el("td", { text: e.actor }),
+          el("td", { text: e.action }),
+          el("td", { text: e.decision }),
+          el("td", { text: (e.reasons || []).join("; ").slice(0, 90) }),
+        ])
+      );
+    }
+    box.append(table);
+  }
+
+  async decideGlenis(kind, id, approve, note) {
+    try {
+      await glenisDecide({ kind, id, approve, note });
+      this.toast(approve ? "Marcado como pagado" : "Rechazado");
+      await this.refresh();
+      await this.openGlenis();
+    } catch (err) {
+      this.toast(err.message || "No se pudo completar la decisión");
     }
   }
 

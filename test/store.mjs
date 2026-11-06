@@ -107,6 +107,7 @@ async function main() {
   };
 
   const env = {
+    ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com",
     STRIPE_SECRET_KEY: STRIPE_KEY,
     STRIPE_WEBHOOK_SECRET: STRIPE_SECRET,
     MERCADOPAGO_WEBHOOK_SECRET: "mp-secret",
@@ -217,7 +218,11 @@ async function main() {
     console.log("✓ Aislamiento: cada usuario ve solo sus compras");
 
     // Sin Stripe configurado, el checkout falla en vez de fingir un pago
-    const noPay = createServer({ db: createMemoryDb(), env: {}, fetchImpl: fakeFetch });
+    const noPay = createServer({
+      db: createMemoryDb(),
+      env: { ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com" },
+      fetchImpl: fakeFetch,
+    });
     await new Promise((r) => noPay.listen(0, r));
     const npBase = `http://127.0.0.1:${noPay.address().port}`;
     const npUser = await request(npBase, "/api/auth/signup", post({ email: "c@ejemplo.com", password: "claveclave1", name: "C" }));

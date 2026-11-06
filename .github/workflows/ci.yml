@@ -53,3 +53,5 @@ jobs:
         run: npm run test:ledger:server
       - name: Pruebas de partidas con entrada (custodia y anti-trampa)
         run: npm run test:rounds
+      - name: Pruebas de GLENIS (registro y control de retiros)
+        run: npm run test:glenis

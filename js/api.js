@@ -86,3 +86,30 @@ export function fetchTransactions(limit = 20) {
 export function fetchOrders() {
   return request("/api/store/orders");
 }
+
+// ---------- GLENIS: la asistente de pagos ----------
+export function glenisStatus() {
+  return request("/api/glenis/status");
+}
+
+export function glenisLog() {
+  return request("/api/glenis/log");
+}
+
+export function glenisWithdrawals() {
+  return request("/api/glenis/withdrawals");
+}
+
+export function glenisDecide({ kind, id, approve, note }) {
+  return request("/api/glenis/decide", {
+    method: "POST",
+    body: JSON.stringify({ kind, id, approve, note }),
+  });
+}
+
+export function glenisSetRole({ email, role }) {
+  return request("/api/glenis/role", {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}

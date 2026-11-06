@@ -18,6 +18,7 @@ const env = {
   PROJECT_ID: "tak-tak",
   COIN_SYMBOL: "MTC",
   TAKTAK_DEV_CODES: "1",
+  ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com",
   // Las partidas con dinero real exigen este flag explícito.
   REAL_MONEY_ROUNDS: "1",
 };

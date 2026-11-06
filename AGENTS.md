@@ -106,6 +106,24 @@ Reglas que no se negocian, porque cada una tapa un agujero que ya existió:
   flag apagado, `/api/rounds/*` responde 503 y el juego funciona sin apostar.
   No lo enciendas sin licencia.
 
+## GLENIS (asistente de pagos)
+
+- **GLENIS propone, el humano decide lo irreversible.** GLENIS lee comprobantes,
+  acredita los claros y arma el expediente de cada retiro, pero **no paga un
+  retiro sola**: eso lo firma el administrador. No lo cambies.
+- **Dos papeles, dos claves.** Visión (leer comprobantes): `OPENAI_API_KEY`,
+  `GEMINI_API_KEY` o `ANTHROPIC_API_KEY`. Texto (redactar): `GROQ_API_KEY`.
+- **Groq no lee imágenes.** La clave de Groq no tiene modelos de visión. Usarla
+  como lector haría que GLENIS aprobara comprobantes sin leerlos. Hay una prueba
+  (`test/glenis.mjs`) que lo impide. Sin clave de visión, todo va a revisión
+  manual: eso es correcto, no un fallo.
+- **El registro es solo con Gmail** (`ALLOWED_EMAIL_DOMAINS`). Las pruebas que
+  registran usuarios deben permitir su dominio en su propio entorno.
+- **La cuenta madre** es `eliecerdepablos@gmail.com` y nace con rol `admin`. Es
+  la única que reparte el rol de administrador (`/api/glenis/role`).
+- **Todo queda registrado** en la colección `glenis_log`: quién, qué, confianza,
+  motivo y cuándo. El panel del administrador lo muestra.
+
 ## Pruebas
 
 - `npm test` cubre motor, servidor, interfaz, tienda, plataforma, integración,
