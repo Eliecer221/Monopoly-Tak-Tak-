@@ -227,6 +227,11 @@ es la integración con Airtm ni el bote con apuestas, y no por falta de código.
 El detalle completo está en [DINERO-REAL.md](DINERO-REAL.md). El resumen: sin
 licencia de juego y sin el producto de Airtm contratado, esto no se enciende.
 
+¿Existe algún juego que cobre y pague con Airtm? Busqué en las fuentes oficiales y
+la respuesta está en [AIRTM-INVESTIGACION.md](AIRTM-INVESTIGACION.md): no, ninguno.
+Lo que hay son plataformas de dinero y de tareas. Y Airtm prohíbe el juego ilegal
+en sus términos.
+
 ## ⚖️ Aviso legal
 
 **Este sistema solo es legal si se opera con licencia oficial de juego, cumplimiento
