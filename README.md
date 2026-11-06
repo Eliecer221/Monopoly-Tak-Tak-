@@ -1,40 +1,77 @@
 # 🎩 Monopoly TAK TAK
 
-Clon del clásico juego de mesa para el navegador, con temática **TAK TAK**.
-Sin dependencias, sin instalación y sin conexión: abre `index.html` y juega.
+Clon del clásico juego de mesa para el navegador, con temática **venezolana**:
+la crisis, los apagones, el mercado cambiario y **El Magnate Trumpista**.
+Sin dependencias de ejecución: abre `index.html` y juega.
 
 ![estado](https://img.shields.io/badge/estado-jugable-35d07f)
 
+**Jugar en línea:** <https://eliecer221.github.io/Monopoly-Tak-Tak-/>
+
 ## ✨ Características
 
-- **Tablero completo de 40 casillas** con las 8 familias de colores, 4 estaciones y 2 compañías.
-- **2 a 4 jugadores** en el mismo dispositivo: cada uno puede ser humano o IA.
+- **Tablero de 40 casillas** ambientado en Venezuela: PDVSA, Corpoelec, Cantv, ministerios,
+  4 transportes y 4 casillas de **crisis** (apagones, agua, cambio, deuda).
+- **2 a 8 jugadores** en el mismo dispositivo: cada uno puede ser humano o IA.
+- **8 fichas de animales venezolanos**: Turpial, Jaguar, Chigüire, Tonina, Oso Frontino,
+  Caimán del Orinoco, Guacamaya y Mono Araguato.
+- **El Magnate Trumpista**: aparece cada 12 turnos con un "deal" que aceptar o rechazar.
+- **Bote simulado** con buy-in ajustable ($0–$50), recargas y reparto 60% ganador / 40% casa.
 - **IA** que compra, construye, hipoteca, puja en subastas y **propone tratos** para completar monopolios.
 - **Reglas clásicas**: alquileres escalados, grupos de color, construcción equilibrada, hoteles,
-  hipotecas con interés, cárcel, dobles, impuestos, Suerte y Arca Común.
+  hipotecas con interés, cárcel, dobles, impuestos, Suerte y Caja Comunal.
+- **32 cartas temáticas** con la actualidad venezolana.
 - **Subastas** cuando un jugador rechaza comprar.
 - **Tratos** entre jugadores: intercambio de propiedades y efectivo con previsualización.
 - **Guardado local** de la partida en el navegador.
+- **Cuentas de usuario reales** con cartera de monedas, gemas y dados.
+- **Tienda con pagos reales** (Stripe y MercadoPago): monedas, dados, gemas y pase
+  de temporada. El modelo de negocio está en **[MONETIZATION.md](MONETIZATION.md)**.
 - **Clasificación global** de mejores partidas, guardada en MongoDB Atlas.
+- **Cuentas con verificación** de correo y teléfono, **2FA** (TOTP) y **KYC**
+  (documento + selfie) obligatorio antes de comprar.
+- **Monedas estilo TikTok**: se compran con dinero real por **Zinli**, con
+  **validación del comprobante por IA**, y el ganador puede **retirarlas**.
+- **Límites de compra** diarios y semanales, **autoexclusión** e historial completo.
 - Interfaz responsive con animaciones, registro de eventos y detalles de cada propiedad.
 
 ## 🚀 Cómo jugar
 
-### Con clasificación global (recomendado)
+### Con cuentas, tienda y clasificación (recomendado)
 
-El servidor sirve el juego y guarda las mejores partidas en MongoDB:
+El servidor sirve el juego, gestiona las cuentas, cobra en la tienda y guarda las
+mejores partidas en MongoDB:
 
 ```bash
 npm install
-MONGODB_URI="mongodb+srv://..." npm start
+MONGODB_URI="mongodb+srv://..." \
+STRIPE_SECRET_KEY="sk_test_..." STRIPE_WEBHOOK_SECRET="whsec_..." \
+npm start
 ```
 
-Abre <http://localhost:3000>. Cuando ganas, tu puntuación se envía sola y el modal
-muestra la clasificación. La cadena de conexión llega por variable de entorno y
-**nunca se guarda en el repositorio** (`.env` está en `.gitignore`; usa `.env.example`
-como plantilla).
+Abre <http://localhost:3000>. Crea tu cuenta, mira la tienda y, al ganar, tu
+puntuación se envía sola. Las claves llegan por variables de entorno y **nunca se
+guardan en el repositorio** (`.env` está en `.gitignore`; usa `.env.example` como
+plantilla).
 
-Sin `MONGODB_URI` el servidor funciona igual y la clasificación aparece como no disponible.
+Sin `MONGODB_URI` el servidor funciona igual: el juego se sirve y las cuentas
+quedan desactivadas. Para probar cuentas y tienda en local sin Atlas:
+
+```bash
+TAKTAK_MEMORY_DB=1 STRIPE_SECRET_KEY=sk_test_... npm start
+```
+
+### Cómo se cobra
+
+1. El jugador crea su cuenta y entra en la tienda.
+2. Elige un producto y el servidor crea la orden con **el precio del catálogo**
+   (nunca el que manda el navegador) y abre la pasarela de pago.
+3. El pago lo confirma el proveedor por **webhook firmado**.
+4. Solo entonces se acredita el saldo, y **una sola vez**, aunque el webhook se
+   repita.
+
+Los pasos para activar Stripe y MercadoPago están en
+**[MONETIZATION.md](MONETIZATION.md)**, sección 4.
 
 ### Solo el juego (sin backend)
 
@@ -52,6 +89,16 @@ Luego abre <http://localhost:8000> en el navegador.
 | --- | --- | --- |
 | `/api/leaderboard?limit=10` | GET | Devuelve las mejores puntuaciones (límite 1–50) |
 | `/api/scores` | POST | Guarda una puntuación `{name, netWorth, turns, players}` |
+| `/api/auth/signup` | POST | Crea una cuenta `{email, password, name}` y devuelve una sesión |
+| `/api/auth/login` | POST | Inicia sesión `{email, password}` |
+| `/api/auth/me` | GET | Devuelve el usuario y su cartera (requiere `Authorization: Bearer`) |
+| `/api/auth/logout` | POST | Cierra la sesión |
+| `/api/store/catalog` | GET | Catálogo de productos y estado de las pasarelas |
+| `/api/store/checkout` | POST | Crea la orden y la sesión de pago `{productId, provider}` |
+| `/api/store/orders` | GET | Órdenes del usuario |
+| `/api/store/transactions` | GET | Historial de compras del usuario |
+| `/api/payments/webhook/stripe` | POST | Webhook de Stripe (firma obligatoria) |
+| `/api/payments/webhook/mercadopago` | POST | Webhook de MercadoPago (firma obligatoria) |
 
 El servidor valida los datos, limita el tamaño de las peticiones y aplica un tope de
 10 envíos por minuto y dirección. Los archivos ocultos (`.env`, `.git`) nunca se sirven.
@@ -64,8 +111,12 @@ El servidor valida los datos, limita el tamaño de las peticiones y aplica un to
 | Propiedades | Se compran al caer; si rechazas, van a subasta |
 | Grupo de color | Alquiler base ×2 sin casas; permite construir |
 | Construcción | Equilibrada: no puedes sacar más de 1 casa de ventaja |
-| Estaciones | Alquiler $25 / $50 / $100 / $200 según cuántas poseas |
-| Compañías | Alquiler 4× dados (10× con ambas) |
+| Transportes | Alquiler $25 / $50 / $100 / $200 según cuántos poseas |
+| Crisis | 4 casillas que cobran al caer; el costo sube 25% cada 40 turnos |
+| Magnate | Aparece cada 12 turnos con un deal; aceptar o rechazar tiene consecuencias |
+| Bote | Simulado: 60% ganador, 40% casa. No mueve dinero real |
+| Tienda | Compra real de monedas, dados, gemas y pase con Stripe o MercadoPago |
+| Monedas | Compra por Zinli con comprobante validado por IA; retiro al correo verificado |
 | Hipoteca | Recibes la mitad del precio; recuperar cuesta +10% |
 | Cárcel | Pagas $50, usas carta o sacas dobles; tras 3 turnos pagas |
 | Dobles | Repites turno; tres dobles seguidos te llevan a la cárcel |
@@ -79,7 +130,12 @@ El motor es agnóstico de la interfaz y se prueba de forma headless:
 npm run test:sim    # simulaciones headless del motor
 npm run test:server # servidor y API de clasificación
 npm run test:ui     # interfaz sobre jsdom
-node test/integration.mjs   # interfaz + servidor + clasificación, sin mocks
+node test/integration.mjs   # interfaz + servidor + clasificación + pagos
+npm run test:store  # cuentas, tienda y firmas de webhook
+npm run test:platform  # 2FA, KYC, IA de comprobantes, retiros y bote
+npm run db:up          # PostgreSQL real en Docker (puerto 55432)
+npm run test:ledger    # libro contable con concurrencia real
+npm run test:payments  # Airtm, política y outbox
 ```
 
 La suite del motor juega 60 partidas completas con IA (verificando invariantes: dinero no
@@ -92,27 +148,47 @@ los límites, el servido de archivos y que los archivos ocultos y las rutas de e
 bloqueados.
 
 La suite de interfaz simula pulsaciones reales de botones sobre un DOM simulado y juega
-una partida completa con un generador de números determinista.
+una partida completa con un generador de números determinista. También comprueba el tablero
+de 8 jugadores, el bote y el reparto 60/40.
+
+Las reglas completas, la tabla de precios, las 32 cartas, el diseño del tablero y los
+requisitos legales del sistema de pagos están en **[RULES.md](RULES.md)**.
 
 La prueba de integración arranca el servidor de verdad, envía la puntuación por HTTP y
-comprueba que se guarda y se muestra en el modal del ganador.
+comprueba que se guarda y se muestra en el modal del ganador. También juega el flujo
+completo de la tienda: registro, compra, webhook firmado, acreditación y cartera.
+
+La suite de tienda comprueba que un webhook con firma falsa **no** acredita saldo, que
+un webhook repetido **no** duplica monedas, que cada usuario ve solo sus compras y que
+sin pasarela configurada el checkout falla en vez de fingir un pago.
 
 ## 🗂️ Estructura
 
 ```
 index.html         Interfaz
 css/styles.css     Estilos
-js/data.js         Tablero, grupos, precios y alquileres
-js/cards.js        Cartas de Suerte y Arca Común
+js/data.js         Tablero venezolano, fichas, precios y El Magnate
+js/cards.js        Cartas de Suerte y Caja Comunal
 js/engine.js       Motor de reglas, IA, subastas y tratos
 js/ui.js           Render del tablero y modales
-js/api.js          Cliente de la clasificación global
+js/api.js          Cliente de la API: clasificación, cuentas y tienda
+js/account.js      Interfaz de cuenta y tienda con pagos
+server/auth.mjs    Cuentas: registro, login y sesiones
+server/store.mjs   Catálogo, órdenes y acreditación de compras
+server/payments.mjs Stripe y MercadoPago: checkout y firmas
+server/db.mjs      Capa de datos: MongoDB o memoria
 js/main.js         Configuración y arranque
 server/server.mjs  Servidor HTTP y API de clasificación (MongoDB)
 test/sim.mjs       Pruebas headless del motor
 test/server.mjs    Pruebas del servidor y la API
 test/ui.mjs        Pruebas de interfaz con jsdom
+test/store.mjs     Pruebas de cuentas, tienda y pagos
+test/platform.mjs  Pruebas de 2FA, KYC, IA de comprobantes, retiros y bote
+test/ledger.mjs    Libro contable: concurrencia, idempotencia, conciliación
+test/payments-infra.mjs  Airtm, política de retiros y worker del outbox
+DOCUMENTO-APP.md   Documento completo: flujos, IA, seguridad y requisitos legales
 test/integration.mjs  Pruebas de integración de extremo a extremo
+MONETIZATION.md    Modelo de negocio: catálogo, precios y cómo cobrar
 ```
 
 ## ☁️ Despliegue en Render
@@ -141,6 +217,38 @@ Si prefieres crearlo a mano: **New → Web Service**, conecta el repositorio y u
 En el plan gratuito la instancia se **duerme tras unos 15 minutos sin visitas**; la
 primera visita después tarda unos 30–60 segundos en responder. Es normal y no afecta
 a los datos: las puntuaciones siguen en Atlas.
+
+## 🧾 Dinero real: qué hay y qué falta
+
+El motor contable está implementado y probado contra **PostgreSQL real**: partida
+doble, sin doble gasto, idempotente, con outbox y conciliación. Lo que **no** hay
+es la integración con Airtm ni el bote con apuestas, y no por falta de código.
+
+El detalle completo está en [DINERO-REAL.md](DINERO-REAL.md). El resumen: sin
+licencia de juego y sin el producto de Airtm contratado, esto no se enciende.
+
+¿Existe algún juego que cobre y pague con Airtm? Busqué en las fuentes oficiales y
+la respuesta está en [AIRTM-INVESTIGACION.md](AIRTM-INVESTIGACION.md): no, ninguno.
+Lo que hay son plataformas de dinero y de tareas. Y Airtm prohíbe el juego ilegal
+en sus términos.
+
+## ⚖️ Aviso legal
+
+**Este sistema solo es legal si se opera con licencia oficial de juego, cumplimiento
+de KYC y AML y bajo las leyes del país correspondiente. Sin licencia es ilegal.**
+
+Un bote donde el jugador paga para entrar y el ganador cobra dinero real es
+**juego/apuesta con dinero real**. En Venezuela lo regula la Comisión Nacional de
+Casinos y operarlo sin licencia es delito. Además, las pasarelas cierran la cuenta al
+detectarlo.
+
+El **bote del juego sigue siendo simulado**. El sistema de monedas, KYC, Zinli y
+retiros está implementado, pero **activarlo sin licencia es responsabilidad de quien
+opera**. Ver [DOCUMENTO-APP.md](DOCUMENTO-APP.md), sección 12, [RULES.md](RULES.md),
+sección 5 y [MONETIZATION.md](MONETIZATION.md), sección 6.
+
+La temática es satírica y no es información periodística. Juega con responsabilidad y
+solo si eres mayor de edad.
 
 ## 📄 Licencia
 

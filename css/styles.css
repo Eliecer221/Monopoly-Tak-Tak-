@@ -236,6 +236,51 @@ button { font-family: inherit; cursor: pointer; }
 }
 .board-logo small { display: block; font-size: 0.42em; letter-spacing: 0.3em; color: var(--muted); -webkit-text-fill-color: var(--muted); }
 .board-center .deck-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.board-magnate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 210, 63, 0.35);
+  background: rgba(255, 210, 63, 0.08);
+  border-radius: 999px;
+  padding: 6px 14px;
+}
+.board-magnate-icon { font-size: 20px; }
+.board-magnate-name { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: #ffe27a; }
+.magnate-card { border-color: rgba(255, 210, 63, 0.5); }
+
+/* Casillas de crisis: se distinguen de las propiedades por el borde rojo. */
+.space[data-type="crisis"] .space-inner { color: #ffd9dd; }
+
+/* Panel del bote (simulado). */
+.pot-panel {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+.pot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pot-label { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.pot-total { font-size: 20px; font-weight: 800; color: #ffe27a; font-family: "DM Mono", monospace; }
+.pot-note { margin: 0; font-size: 11px; color: var(--muted); }
+.pot-note:empty { display: none; }
+.pot-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.modal-note { font-size: 12px; color: var(--muted); margin: 0 0 4px; line-height: 1.5; }
+
+/* Emotes temáticos. */
+.emotes { display: flex; gap: 6px; flex-wrap: wrap; }
+.emote-btn {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 10px;
+  font-size: 18px;
+  line-height: 1;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.emote-btn:hover { background: rgba(255, 255, 255, 0.1); }
 .deck-chip {
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.05);
@@ -367,8 +412,10 @@ button { font-family: inherit; cursor: pointer; }
   inset: 0;
   display: none;
   place-items: center;
-  background: rgba(4, 7, 16, 0.78);
-  backdrop-filter: blur(6px);
+  /* Sin desenfoque: la "nube" del backdrop-filter difuminaba el contenido del
+     modal, incluidos los datos de pago de PayPal. El fondo oscurece lo justo
+     para que el panel se lea con nitidez. */
+  background: rgba(4, 7, 16, 0.55);
   z-index: 50;
   padding: 18px;
   overflow-y: auto;
@@ -536,4 +583,128 @@ button { font-family: inherit; cursor: pointer; }
 button, .space {
   touch-action: manipulation;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* ---------- Cuenta y tienda ---------- */
+.account-chip { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.account-chip .chip-name {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-family: "DM Mono", monospace;
+}
+.account-chip .chip-user { color: var(--muted); }
+.ghost-btn.store { border-color: rgba(255, 210, 63, 0.5); color: #ffe27a; }
+.ghost-btn.glenis { border-color: rgba(120, 200, 255, 0.5); color: #9fdcff; }
+.ghost-btn.glenis:hover { background: rgba(120, 200, 255, 0.16); }
+.ghost-btn.glenis[hidden] { display: none; }
+.glenis-face { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+
+/* Cabecera de GLENIS: su rostro junto al nombre. */
+.glenis-head { display: flex; align-items: center; gap: 12px; }
+.glenis-portrait {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(120, 200, 255, 0.55);
+  box-shadow: 0 0 18px rgba(120, 200, 255, 0.22);
+  flex: 0 0 auto;
+}
+.glenis-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.glenis-name { font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+.glenis-tag { font-size: 12px; color: var(--muted, #9aa7b4); }
+
+.modal.wide { max-width: 720px; width: 100%; }
+.auth-fields { display: grid; gap: 10px; margin: 12px 0; }
+.auth-fields input {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border-radius: 10px;
+  padding: 12px;
+  font-size: 15px;
+  font-family: inherit;
+}
+.auth-error { color: #ff8f9b; font-size: 13px; min-height: 18px; margin: 4px 0; }
+
+.wallet-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin: 12px 0; }
+.wallet-item {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+.wallet-label { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.wallet-value { font-size: 18px; font-weight: 800; font-family: "DM Mono", monospace; color: #ffe27a; }
+
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 12px 0; }
+.shop-card {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  text-align: center;
+}
+.shop-card.featured { border-color: rgba(255, 210, 63, 0.6); background: rgba(255, 210, 63, 0.08); }
+.shop-kind { font-size: 26px; }
+.shop-name { font-weight: 700; font-size: 14px; }
+.shop-price { font-family: "DM Mono", monospace; color: #ffe27a; font-size: 18px; font-weight: 800; }
+.shop-actions { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.shop-off { font-size: 12px; color: var(--muted); }
+
+/* Panel de pago de PayPal: el correo de cobro debe leerse con nitidez. */
+.pay-box {
+  display: grid;
+  gap: 6px;
+  text-align: center;
+  border: 1px solid rgba(255, 210, 63, 0.45);
+  background: rgba(255, 210, 63, 0.07);
+  border-radius: 14px;
+  padding: 16px;
+  margin: 12px 0;
+}
+.pay-label { font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.pay-email {
+  font-family: "DM Mono", monospace;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  word-break: break-all;
+  user-select: all;
+}
+.pay-amount { font-size: 14px; font-weight: 700; }
+.pay-note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.pay-form { display: grid; gap: 12px; }
+.pay-form .field { margin-bottom: 0; }
+.pay-form input[type="text"] { width: 100%; }
+.primary-btn.small, .ghost-btn.small { padding: 8px 12px; font-size: 13px; min-height: 40px; }
+.modal-sub.legal { font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 620px) {
+  .account-chip { display: none; }
+  .shop-grid { grid-template-columns: 1fr 1fr; }
+  .auth-fields input { min-height: 44px; }
+}
+
+/* Advertencia legal obligatoria, siempre visible al pie. */
+.legal-banner {
+  margin: 12px 16px 24px;
+  padding: 12px 16px;
+  border: 1px solid #6b4a1f;
+  border-left: 4px solid #e0a03a;
+  border-radius: 8px;
+  background: rgba(224, 160, 58, 0.09);
+  color: #f0e2c8;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.legal-banner strong { color: #f5c46a; }
+@media (max-width: 640px) {
+  .legal-banner { margin: 10px; font-size: 0.78rem; }
 }

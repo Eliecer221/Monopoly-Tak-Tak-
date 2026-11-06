@@ -2,22 +2,41 @@
   "name": "monopoly-tak-tak",
   "version": "1.0.0",
   "private": true,
-  "description": "Monopoly TAK TAK: clon del clásico juego de mesa para el navegador, con IA, subastas, tratos y clasificación global.",
+  "description": "Monopoly TAK TAK: juego de mesa para el navegador con cuentas de usuario, tienda y pagos reales.",
   "type": "module",
   "scripts": {
     "start": "node server/server.mjs",
     "serve:static": "python3 -m http.server 8000",
-    "test": "node test/sim.mjs && node test/server.mjs",
+    "test": "node test/sim.mjs && node test/server.mjs && node test/store.mjs && node test/platform.mjs && node test/paypal.mjs",
     "test:sim": "node test/sim.mjs",
     "test:ui": "node test/ui.mjs",
-    "test:server": "node test/server.mjs"
+    "test:server": "node test/server.mjs",
+    "test:store": "node test/store.mjs",
+    "test:platform": "node test/platform.mjs",
+    "test:paypal": "node test/paypal.mjs",
+    "test:ledger": "node test/ledger.mjs",
+    "test:payments": "node test/payments-infra.mjs",
+    "test:ledger:server": "node test/ledger-server.mjs",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "node -e \"import('./server/ledger.mjs').then(async m=>{const p=m.createPool({connectionString:process.env.DATABASE_URL});await m.migrate(p);await p.end();console.log('esquema aplicado')})\"",
+    "test:operator": "node test/operator.mjs",
+    "test:rounds": "node test/rounds.mjs",
+    "test:glenis": "node test/glenis.mjs",
+    "test:glenis:vision": "node test/glenis-vision.mjs"
   },
   "dependencies": {
-    "mongodb": "^6.10.0"
+    "mongodb": "^6.10.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "jsdom": "^25.0.1"
   },
-  "keywords": ["monopoly", "juego", "tablero", "tak-tak"],
+  "keywords": [
+    "monopoly",
+    "juego",
+    "tablero",
+    "tak-tak"
+  ],
   "license": "MIT"
 }

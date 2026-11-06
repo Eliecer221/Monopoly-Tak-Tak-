@@ -19,6 +19,25 @@ export function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+// Lee un archivo de imagen y lo devuelve como data URL, que es lo que espera
+// la API del comprobante. El límite evita subir archivos enormes.
+export function readImageAsDataUrl(file, maxBytes = 4 * 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error("no hay archivo"));
+      return;
+    }
+    if (file.size > maxBytes) {
+      reject(new Error("la imagen es demasiado grande (máximo 4 MB)"));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error("no se pudo leer la imagen"));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v));
 }

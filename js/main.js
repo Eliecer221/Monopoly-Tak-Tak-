@@ -2,7 +2,8 @@
 
 import { Game, resetBoardState } from "./engine.js";
 import { UI } from "./ui.js";
-import { TOKENS, PLAYER_COLORS, AI_NAMES } from "./data.js";
+import { AccountUI } from "./account.js";
+import { TOKENS, TOKEN_NAMES, PLAYER_COLORS, AI_NAMES } from "./data.js";
 import { el } from "./utils.js";
 
 const STORAGE_KEY = "monopoly-tak-tak-save-v1";
@@ -10,6 +11,7 @@ const STORAGE_KEY = "monopoly-tak-tak-save-v1";
 const setup = {
   count: 2,
   money: 1500,
+  buyIn: 0,
   players: [],
 };
 
@@ -28,7 +30,7 @@ function renderPlayerConfig() {
   box.innerHTML = "";
   setup.players.forEach((p, i) => {
     const row = el("div", { class: "pc-row" });
-    row.append(el("span", { class: "pc-token", text: p.token }));
+    row.append(el("span", { class: "pc-token", text: p.token, title: TOKEN_NAMES[i] }));
     const name = el("input", { type: "text", value: p.name, maxlength: "16" });
     name.addEventListener("input", () => (setup.players[i].name = name.value || `Jugador ${i + 1}`));
     row.append(name);
@@ -65,9 +67,17 @@ function bindSetup() {
     setup.money = Number(btn.dataset.money);
   });
 
+  const buyInBox = document.getElementById("buy-in");
+  buyInBox.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-buyin]");
+    if (!btn) return;
+    for (const b of buyInBox.children) b.classList.toggle("active", b === btn);
+    setup.buyIn = Number(btn.dataset.buyin);
+  });
+
   document.getElementById("btn-start").addEventListener("click", () => {
     document.getElementById("setup-overlay").classList.remove("show");
-    startGame({ players: setup.players, startMoney: setup.money });
+    startGame({ players: setup.players, startMoney: setup.money, buyIn: setup.buyIn });
   });
 
   document.getElementById("btn-new").addEventListener("click", () => {
@@ -105,6 +115,9 @@ function bindSetup() {
 function startGame(config) {
   resetBoardState();
   const game = new Game(config);
+  // El buy-in forma el bote inicial: cada jugador aporta lo mismo.
+  const perPlayer = config.buyIn || 0;
+  if (perPlayer > 0) game.contribute(perPlayer * config.players.length);
   boot(game);
 }
 
@@ -132,7 +145,23 @@ function showFatal(err) {
 }
 
 // expuesto para las pruebas automatizadas
-window.TakTak = { Game, UI, resetBoardState, startGame, boot };
+window.TakTak = { Game, UI, AccountUI, resetBoardState, startGame, boot };
 
 bindSetup();
 renderPlayerConfig();
+
+// Cuentas y tienda: se inicializan siempre; si no hay backend, avisan al usarse.
+window.account = new AccountUI();
+
+// Al volver de la pasarela de pago (?compra=ok) se refresca la cartera.
+const params = new URLSearchParams(window.location.search);
+if (params.get("compra")) {
+  const estado = params.get("compra");
+  window.account.refresh().then(() => {
+    window.ui?.toast(
+      estado === "ok"
+        ? "Pago recibido. Tu saldo se acredita al confirmarse."
+        : "Compra cancelada."
+    );
+  });
+}

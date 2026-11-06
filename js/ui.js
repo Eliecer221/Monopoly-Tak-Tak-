@@ -1,6 +1,6 @@
 // Capa de interfaz. Traduce el estado del motor a DOM y viceversa.
 
-import { BOARD, COLOR_GROUPS, TOKENS, groupProperties, spaceColor } from "./data.js";
+import { BOARD, COLOR_GROUPS, TOKENS, CRISIS_TEXT, groupProperties, spaceColor } from "./data.js";
 import { el, fmt, sleep } from "./utils.js";
 import { apiEnabled, fetchLeaderboard, submitScore } from "./api.js";
 
@@ -14,9 +14,12 @@ export class UI {
     this.tokenEls = new Map();
     this.manageOpen = false;
     this.bindStatic();
+    this.bindPot();
+    this.bindEmotes();
     this.renderBoard();
     this.wireGame();
     this.render();
+    this.renderPot();
   }
 
   bindStatic() {
@@ -41,9 +44,13 @@ export class UI {
   renderBoard() {
     this.boardEl.innerHTML = "";
     const center = el("div", { class: "board-center" }, [
-      el("div", { class: "board-logo", html: "MONOPOLY<br/>TAK TAK<small>EDICIÓN CIUDAD</small>" }),
+      el("div", { class: "board-logo", html: "MONOPOLY<br/>TAK TAK<small>EDICIÓN VENEZUELA</small>" }),
+      el("div", { class: "board-magnate" }, [
+        el("span", { class: "board-magnate-icon", text: "🕶️" }),
+        el("span", { class: "board-magnate-name", text: "El Magnate Trumpista" }),
+      ]),
       el("div", { class: "deck-row" }, [
-        el("span", { class: "deck-chip", text: "📦 Arca Común" }),
+        el("span", { class: "deck-chip", text: "📦 Caja Comunal" }),
         el("span", { class: "deck-chip", text: "❓ Suerte" }),
       ]),
     ]);
@@ -61,25 +68,26 @@ export class UI {
     const node = el("div", {
       class: "space" + (["go", "jail", "parking", "gotojail"].includes(s.type) ? " corner" : ""),
       "data-index": s.i,
+      "data-type": s.type,
       "data-side": s.side,
     });
     const { row, col } = this.gridPosition(s.i);
     node.style.gridRow = `${row}`;
     node.style.gridColumn = `${col}`;
 
-    if (["property", "railroad", "utility"].includes(s.type)) {
+    if (["property", "railroad"].includes(s.type)) {
       const bar = el("div", { class: "color-bar" });
       bar.style.background = spaceColor(s);
       node.append(bar);
     }
 
     const inner = el("div", { class: "space-inner" });
-    if (["go", "jail", "parking", "gotojail", "chance", "chest", "tax", "utility"].includes(s.type)) {
+    if (["go", "jail", "parking", "gotojail", "chance", "chest", "tax", "crisis"].includes(s.type)) {
       inner.append(el("div", { class: "space-icon", text: s.icon || "🏙️" }));
     }
     inner.append(el("div", { class: "space-name", text: s.name }));
     if (s.price) inner.append(el("div", { class: "space-price", text: `$${s.price}` }));
-    if (s.type === "tax") inner.append(el("div", { class: "space-price", text: `$${s.amount}` }));
+    if (s.type === "tax" || s.type === "crisis") inner.append(el("div", { class: "space-price", text: `$${s.amount}` }));
     node.append(inner);
 
     node.addEventListener("click", () => this.showPropertyDetail(s.i));
@@ -100,8 +108,9 @@ export class UI {
       if (!tok || !space) continue;
       const onSame = this.game.players.filter((q) => q.position === p.position);
       const slot = onSame.indexOf(p);
-      const offsetX = (slot % 2) * 11 - 5;
-      const offsetY = Math.floor(slot / 2) * 11 - 5;
+      // Hasta 8 fichas por casilla: se reparten en una rejilla de 3 columnas.
+      const offsetX = (slot % 3) * 9 - 9;
+      const offsetY = Math.floor(slot / 3) * 9 - 9;
       tok.style.left = `${space.offsetLeft + space.offsetWidth / 2 + offsetX - 10}px`;
       tok.style.top = `${space.offsetTop + space.offsetHeight / 2 + offsetY - 10}px`;
     }
@@ -266,6 +275,10 @@ export class UI {
         box.append(detail);
         break;
       }
+      case "magnate":
+        addBtn("✅ Aceptar el deal", "accept", { primary: true, hint: "El Magnate Trumpista" });
+        addBtn("❌ Rechazar", "reject");
+        break;
       default:
         addBtn("Continuar", "ok", { primary: true });
     }
@@ -291,13 +304,107 @@ export class UI {
     g.on("log", (entry) => this.appendLog(entry));
     g.on("toast", (text) => this.toast(text));
     g.on("decision", () => this.renderActions());
-    g.on("decision-cleared", () => this.renderActions());
+    g.on("decision-cleared", () => {
+      if (this._magnateModal) {
+        this._magnateModal = false;
+        this.closeModal();
+      }
+      this.renderActions();
+    });
     g.on("phase", () => this.renderActions());
     g.on("card", ({ player, kind, card }) => {
       if (!player.isAI) this.showCard(kind, card, player);
     });
-    g.on("gameover", ({ winner }) => this.showWinner(winner));
+    g.on("magnate", ({ player, deal }) => this.showMagnate(player, deal));
+    g.on("pot", (pot) => this.renderPot(pot));
+    g.on("gameover", ({ winner, payout }) => this.showWinner(winner, payout));
     g.on("bankrupt", () => this.render());
+  }
+
+  // ---------- bote y emotes ----------
+  renderPot(pot = this.game.pot) {
+    const totalEl = document.getElementById("pot-total");
+    if (!totalEl) return;
+    totalEl.textContent = fmt(this.game.potTotal());
+    const note = document.getElementById("pot-note");
+    if (note) {
+      note.textContent = pot.buyIn ? `Buy-in $${pot.buyIn} por jugador` : "";
+    }
+  }
+
+  bindPot() {
+    const recharge = document.getElementById("btn-recharge");
+    const payout = document.getElementById("btn-payout");
+    if (recharge) {
+      recharge.addEventListener("click", () => {
+        const raw = prompt("¿Cuánto quieres recargar al bote? (dólares)", "5");
+        if (raw === null) return;
+        const amount = Number(raw);
+        if (!Number.isFinite(amount) || amount <= 0) {
+          this.toast("Monto no válido");
+          return;
+        }
+        this.game.contribute(amount);
+        this.renderPot();
+        this.toast(`Bote recargado con $${amount}`);
+      });
+    }
+    if (payout) {
+      payout.addEventListener("click", () => {
+        const r = this.game.payout();
+        this.openModal(
+          el("div", {}, [
+            el("h2", { class: "modal-title", text: "Reparto del bote" }),
+            el("table", { class: "rent-table" }, [
+              el("tr", {}, [el("td", { text: "Bote total" }), el("td", { text: fmt(r.total) })]),
+              el("tr", {}, [el("td", { text: "Ganador (60%)" }), el("td", { text: fmt(r.winner) })]),
+              el("tr", {}, [el("td", { text: "Casa (40%)" }), el("td", { text: fmt(r.house) })]),
+            ]),
+            el("p", { class: "modal-sub", text: "Cifras simuladas: este juego no mueve dinero real." }),
+          ])
+        );
+      });
+    }
+  }
+
+  bindEmotes() {
+    const box = document.getElementById("emotes");
+    if (!box) return;
+    const emotes = ["🔥", "😂", "😱", "🤑", "🕶️", "🕯️", "🐦", "💀"];
+    for (const e of emotes) {
+      const btn = el("button", { class: "emote-btn", type: "button", text: e, title: "Enviar emote" });
+      btn.addEventListener("click", () => {
+        this.game.logEvent(`${this.game.current?.name || "Alguien"} reacciona ${e}`, "info");
+      });
+      box.append(btn);
+    }
+  }
+
+  showMagnate(player, deal) {
+    if (!player || player.isAI) return;
+    const content = el("div", {}, [
+      el("h2", { class: "modal-title", text: "🕶️ El Magnate Trumpista" }),
+      el("div", { class: "card-draw magnate-card" }, [
+        el("div", { class: "card-kind", text: player.name }),
+        el("div", { class: "card-text", text: deal.text }),
+      ]),
+      el("p", { class: "modal-sub", text: "Tu respuesta tiene consecuencias." }),
+    ]);
+    const actions = el("div", { class: "modal-actions" }, []);
+    const accept = el("button", { class: "primary-btn", type: "button", text: "Aceptar el deal" });
+    accept.addEventListener("click", () => {
+      this.closeModal();
+      this.game.decide("accept");
+    });
+    const reject = el("button", { class: "ghost-btn", type: "button", text: "Rechazar" });
+    reject.addEventListener("click", () => {
+      this.closeModal();
+      this.game.decide("reject");
+    });
+    actions.append(accept, reject);
+    content.append(actions);
+    this._magnateModal = true;
+    this.openModal(content);
   }
 
   async animateDice(d1, d2, total, player) {
@@ -343,7 +450,7 @@ export class UI {
 
   showCard(kind, card, player) {
     const content = el("div", {}, [
-      el("h2", { class: "modal-title", text: kind === "chance" ? "❓ Suerte" : "📦 Arca Común" }),
+      el("h2", { class: "modal-title", text: kind === "chance" ? "❓ Suerte" : "📦 Caja Comunal" }),
       el("div", { class: "card-draw" }, [
         el("div", { class: "card-kind", text: player ? player.name : "" }),
         el("div", { class: "card-text", text: card.text }),
@@ -363,7 +470,7 @@ export class UI {
     const owner = g.players.find((p) => p.properties.includes(index));
 
     const body = el("div", {});
-    if (["property", "railroad", "utility"].includes(s.type)) {
+    if (["property", "railroad"].includes(s.type)) {
       const card = el("div", { class: "prop-card" });
       const bar = el("div", { class: "pc-bar" });
       bar.style.background = spaceColor(s);
@@ -393,25 +500,27 @@ export class UI {
       } else if (s.type === "railroad") {
         const table = el("table", { class: "rent-table" });
         [25, 50, 100, 200].forEach((r, i) => {
-          table.append(el("tr", {}, [el("td", { text: `${i + 1} estación(es)` }), el("td", { text: fmt(r) })]));
+          table.append(el("tr", {}, [el("td", { text: `${i + 1} transporte(s)` }), el("td", { text: fmt(r) })]));
         });
         body.append(table);
-      } else if (s.type === "utility") {
-        body.append(el("div", { class: "player-meta", text: "Alquiler: 4× dados (10× si posees ambas compañías)." }));
       }
     } else {
-      body.append(el("h2", { class: "modal-title", text: s.name }));
+      body.append(el("h2", { class: "modal-title", text: `${s.icon || ""} ${s.name}`.trim() }));
       if (s.type === "tax") body.append(el("p", { class: "modal-sub", text: `Paga ${fmt(s.amount)} al banco.` }));
+      if (s.type === "crisis") {
+        body.append(el("p", { class: "modal-sub", text: CRISIS_TEXT[s.crisis] || "La crisis golpea tu cartera." }));
+        body.append(el("p", { class: "modal-sub", text: `Costo actual: ${fmt(g.crisisAmount(s, g.current))} (sube con el tiempo).` }));
+      }
       if (s.type === "go") body.append(el("p", { class: "modal-sub", text: "Cobra $200 cada vez que pasas." }));
       if (s.type === "jail") body.append(el("p", { class: "modal-sub", text: "Solo de visita… o cumpliendo condena." }));
-      if (s.type === "parking") body.append(el("p", { class: "modal-sub", text: "Descanso gratis." }));
+      if (s.type === "parking") body.append(el("p", { class: "modal-sub", text: "Descanso gratis entre embajadas." }));
       if (s.type === "gotojail") body.append(el("p", { class: "modal-sub", text: "Directo a la cárcel sin cobrar salida." }));
       if (s.type === "chance" || s.type === "chest") body.append(el("p", { class: "modal-sub", text: "Roba una carta y sigue las instrucciones." }));
     }
 
     if (owner) {
       body.append(el("div", { class: "player-meta", text: `Propiedad de ${owner.token} ${owner.name}${s.mortgaged ? " (hipotecada)" : ""}` }));
-    } else if (["property", "railroad", "utility"].includes(s.type)) {
+    } else if (["property", "railroad"].includes(s.type)) {
       body.append(el("div", { class: "player-meta", text: "Disponible en el banco" }));
     }
 
@@ -657,11 +766,23 @@ export class UI {
     this.openModal(content);
   }
 
-  showWinner(winner) {
+  showWinner(winner, payout) {
     const content = el("div", { class: "winner-box" }, []);
     content.append(el("div", { class: "winner-token", text: winner ? winner.token : "🏆" }));
     content.append(el("h2", { text: winner ? `¡${winner.name} gana!` : "Partida terminada" }));
     content.append(el("p", { text: winner ? `Patrimonio final: ${fmt(this.game.netWorth(winner))}` : "No queda ningún jugador." }));
+
+    const reparto = payout || this.game.payout();
+    if (reparto.total > 0) {
+      content.append(
+        el("table", { class: "rent-table" }, [
+          el("tr", {}, [el("td", { text: "Bote total" }), el("td", { text: fmt(reparto.total) })]),
+          el("tr", {}, [el("td", { text: "Ganador (60%)" }), el("td", { text: fmt(reparto.winner) })]),
+          el("tr", {}, [el("td", { text: "Casa (40%)" }), el("td", { text: fmt(reparto.house) })]),
+        ])
+      );
+      content.append(el("p", { class: "modal-sub", text: "Reparto 60/40 del bote." }));
+    }
 
     // Clasificación global: solo si el jugador humano ganó y hay backend.
     const humanWon = winner && !winner.isAI;

@@ -4,7 +4,9 @@
 
 import { JSDOM } from "jsdom";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { createServer } from "../server/server.mjs";
+import { createMemoryDb } from "../server/db.mjs";
 
 const assert = (cond, msg) => {
   if (!cond) throw new Error(msg);
@@ -32,7 +34,27 @@ function memoryStore() {
 }
 
 const store = memoryStore();
-const server = createServer({ store });
+const STRIPE_WEBHOOK_SECRET = "whsec_integracion";
+// `fetch` falso solo para la llamada saliente a Stripe: el resto del flujo
+// (HTTP, cuentas, webhook y acreditación) es código real.
+const stripeCalls = [];
+const fakeFetch = async (url, options) => {
+  stripeCalls.push({ url, options });
+  if (url.includes("api.stripe.com")) {
+    return { ok: true, json: async () => ({ id: "cs_live_1", url: "https://checkout.stripe.com/pay/cs_live_1" }) };
+  }
+  return { ok: false, json: async () => ({}) };
+};
+const server = createServer({
+  store,
+  db: createMemoryDb(),
+  env: {
+    STRIPE_SECRET_KEY: "sk_test_int",
+    STRIPE_WEBHOOK_SECRET,
+    ALLOWED_EMAIL_DOMAINS: "gmail.com,ejemplo.com",
+  },
+  fetchImpl: fakeFetch,
+});
 await new Promise((r) => server.listen(0, r));
 const port = server.address().port;
 
@@ -50,15 +72,30 @@ global.HTMLElement = window.HTMLElement;
 global.requestAnimationFrame = (cb) => setTimeout(cb, 0);
 window.requestAnimationFrame = global.requestAnimationFrame;
 window.TAKTAK_API_BASE = `http://127.0.0.1:${port}`;
+const storage = new Map();
 Object.defineProperty(window, "localStorage", {
-  value: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+  value: {
+    getItem: (k) => (storage.has(k) ? storage.get(k) : null),
+    setItem: (k, v) => storage.set(k, String(v)),
+    removeItem: (k) => storage.delete(k),
+  },
   configurable: true,
 });
 
 const { Game, resetBoardState } = await import("../js/engine.js");
 const { UI } = await import("../js/ui.js");
 const { TOKENS, PLAYER_COLORS } = await import("../js/data.js");
-const { apiEnabled, fetchLeaderboard } = await import("../js/api.js");
+const {
+  apiEnabled,
+  fetchLeaderboard,
+  signup,
+  checkout,
+  me,
+  fetchCatalog,
+  fetchTransactions,
+  setToken,
+  getToken,
+} = await import("../js/api.js");
 
 assert(apiEnabled(), "la API debería estar activa con un backend configurado");
 
@@ -109,6 +146,68 @@ ui2.showWinner(g2.players[0]);
 await new Promise((r) => setTimeout(r, 300));
 assert(store.rows.length === before, "una victoria de la IA no debería enviar puntuación");
 console.log("✓ Integración: la victoria de la IA no contamina la clasificación");
+
+// ---------- cuentas, tienda y pagos reales, de extremo a extremo ----------
+// Se usa el cliente real (js/api.js) contra el servidor real.
+
+const created = await signup({ email: "jefa@ejemplo.com", password: "clavefuerte1", name: "Jefa" });
+assert(created.token && created.user.id, "el registro no devolvió sesión");
+assert(created.user.wallet.coins === 500, "el usuario nuevo no recibió monedas de bienvenida");
+setToken(created.token);
+assert(getToken() === created.token, "el token no se guardó en el navegador");
+console.log("✓ Integración: registro real y token guardado en el navegador");
+
+const cat = await fetchCatalog();
+assert(cat.products.length >= 6, "el catálogo no llega al cliente");
+assert(cat.payments.stripe === true, "el cliente no ve Stripe activo");
+
+const coinsBefore = (await me()).user.wallet.coins;
+const order = await checkout({ productId: "coins_500", provider: "stripe" });
+assert(order.url.includes("stripe.com"), "no se obtuvo la URL de la pasarela");
+assert(stripeCalls.some((c) => c.url.includes("api.stripe.com")), "no se llamó a Stripe");
+console.log("✓ Integración: la compra abre la pasarela de pago real");
+
+// El pago se confirma por webhook firmado; hasta entonces el saldo no cambia.
+assert((await me()).user.wallet.coins === coinsBefore, "el saldo cambió antes de confirmarse el pago");
+
+const event = JSON.stringify({
+  type: "checkout.session.completed",
+  data: { object: { client_reference_id: order.orderId, payment_intent: "pi_int_1" } },
+});
+const ts = Math.floor(Date.now() / 1000);
+const sig = `t=${ts},v1=${crypto.createHmac("sha256", STRIPE_WEBHOOK_SECRET).update(`${ts}.${event}`).digest("hex")}`;
+const hook = await fetch(`http://127.0.0.1:${port}/api/payments/webhook/stripe`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "stripe-signature": sig },
+  body: event,
+});
+assert(hook.status === 200, "el webhook válido fue rechazado");
+const coinsAfter = (await me()).user.wallet.coins;
+assert(coinsAfter === coinsBefore + 500, `las monedas no se acreditaron: ${coinsBefore} → ${coinsAfter}`);
+
+// Repetir el webhook no puede duplicar el saldo.
+await fetch(`http://127.0.0.1:${port}/api/payments/webhook/stripe`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", "stripe-signature": sig },
+  body: event,
+});
+assert((await me()).user.wallet.coins === coinsAfter, "un webhook repetido duplicó el saldo");
+console.log("✓ Integración: pago confirmado por webhook firmado, acreditado una sola vez");
+
+const hist = await fetchTransactions(10);
+assert(hist.transactions.length === 1, "el historial de compras está mal");
+assert(hist.transactions[0].amountCents === 199, "el importe registrado es incorrecto");
+console.log("✓ Integración: la compra queda en el historial del usuario");
+
+// La interfaz de cuenta pinta la cartera en la cabecera.
+const { AccountUI } = await import("../js/account.js");
+const account = new AccountUI();
+await account.refresh();
+account.renderChip();
+const chip = document.querySelector("#account-chip");
+assert(chip && chip.textContent.includes("Jefa"), "la cabecera no muestra al usuario");
+assert(chip.textContent.includes("1.000") || chip.textContent.includes("1,000"), "la cabecera no muestra el saldo");
+console.log("✓ Integración: la cabecera muestra usuario y cartera");
 
 await new Promise((r) => server.close(r));
 console.log("\n✅ Pruebas de integración superadas");
