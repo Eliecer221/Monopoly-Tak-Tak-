@@ -18,7 +18,8 @@
     "test:ledger:server": "node test/ledger-server.mjs",
     "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
-    "db:migrate": "node -e \"import('./server/ledger.mjs').then(async m=>{const p=m.createPool({connectionString:process.env.DATABASE_URL});await m.migrate(p);await p.end();console.log('esquema aplicado')})\""
+    "db:migrate": "node -e \"import('./server/ledger.mjs').then(async m=>{const p=m.createPool({connectionString:process.env.DATABASE_URL});await m.migrate(p);await p.end();console.log('esquema aplicado')})\"",
+    "test:operator": "node test/operator.mjs"
   },
   "dependencies": {
     "mongodb": "^6.10.0",

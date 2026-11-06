@@ -29,6 +29,7 @@ reutilizable para cobrar productos digitales.
 | Worker del outbox | `server/outbox-worker.mjs` | `test/payments-infra.mjs` |
 | Rutas del servidor | `server/server.mjs` | `test/ledger-server.mjs` |
 | Esquema y arranque local | `docker-compose.yml` | manual |
+| Identificador de cobro del operador | `server/operator.mjs` | `test/operator.mjs` |
 
 Las pruebas corren contra **PostgreSQL 16 real**, no contra dobles.
 
@@ -99,7 +100,75 @@ Cuando se tenga la documentación oficial:
 
 ---
 
-## 3. Cómo probarlo
+## 3. Tu 10%: cómo funciona de verdad
+
+Tú quieres recibir el 10%. Aquí está la parte que casi todo el mundo entiende al
+revés, y que te ahorra un problema serio.
+
+### El 10% no se transfiere. Se queda.
+
+Mira lo que hace el código:
+
+```js
+const winner = Math.round(total * 0.9);
+return { total, winner, house: total - winner };
+```
+
+El reparto solo decide **cuánto se le paga al ganador**. Lo que no se le paga
+**no se mueve**: se queda donde ya estaba, que es tu cuenta.
+
+Es decir: tu 10% no necesita ninguna transferencia. Ya lo tienes. Por eso no
+existe —ni debe existir— una función que "pague la comisión al creador". Si
+existiera, tendrías que confiar en que no falla, y bastaría un fallo para pagar
+dos veces o ninguna.
+
+### Por eso el riesgo no es cobrar de menos: es pagar de más
+
+Como el 10% se queda solo, tu única operación de dinero real es **el retiro del
+ganador**. Ahí está todo el riesgo. Y ahí es donde está la defensa:
+
+| Defensa | Dónde |
+|---|---|
+| Cada retiro lo aprueba una persona | `server/zinli.mjs`, cola de revisión |
+| El comprobante se valida por IA, y ante duda va a revisión manual | `server/ai-receipts.mjs` |
+| Un comprobante no se reutiliza (hash único) | `server/ai-receipts.mjs` |
+| Las monedas se retienen al pedir el retiro y vuelven si se rechaza | `server/zinli.mjs` |
+| Idempotencia: repetir la clave no paga dos veces | `server/ledger.mjs` |
+| Límites diario, semanal y mensual | `server/policy.mjs` |
+
+Nunca hay un camino en el que el sistema pague sin que una persona lo apruebe.
+
+### Dónde se configura tu dirección
+
+```bash
+OPERATOR_PAYOUT_HANDLE="taktak38847eb2"
+OPERATOR_PAYOUT_CHANNEL="airtm"
+```
+
+Solo el identificador, **no la URL completa**. Si pones `https://airtm.me/...`,
+el sistema lo rechaza a propósito: una URL puede llevar parámetros añadidos o
+apuntar a otro sitio. Un identificador limpio no.
+
+Ese valor **no es un secreto**: es tu dirección de cobro, como un número de
+cuenta. Se muestra al pagador. Lo que nunca debe ir ahí es una contraseña ni un
+token.
+
+Puedes comprobar cómo está configurado con `/health`:
+
+```json
+{ "operatorPayout": { "channel": "airtm", "configured": true } }
+```
+
+Publica **solo la forma**, nunca el valor.
+
+### Un detalle del redondeo
+
+`winner = Math.round(total * 0.9)` y `house = total - winner`. La casa recibe el
+resto, así que en un bote de 7 monedas el ganador se lleva 6 y tú 1. Con
+`Math.round` a favor del ganador, **tu parte nunca baja del 10%**, y la suma
+siempre cuadra. Probado con 10, 100, 999 y 12.345.
+
+## 4. Cómo probarlo
 
 ```bash
 # 1. Levantar PostgreSQL real
@@ -117,11 +186,14 @@ npm run test:payments
 # 5. Servidor completo contra PostgreSQL
 DATABASE_URL=postgres://postgres:devpass@127.0.0.1:55432/taktak npm run test:ledger:server
 
-# 6. Apagar
+# 6. Pruebas del cobro del operador
+npm run test:operator
+
+# 7. Apagar
 npm run db:down
 ```
 
-## 4. Cómo se enciende el libro en el servidor
+## 5. Cómo se enciende el libro en el servidor
 
 El libro contable es **opcional**. Sin `DATABASE_URL` el servidor arranca igual y
 las rutas de dinero responden 503.
@@ -143,7 +215,7 @@ npm start
 }
 ```
 
-## 5. Rutas del libro
+## 6. Rutas del libro
 
 | Ruta | Método | Quién | Qué hace |
 |---|---|---|---|
@@ -155,7 +227,7 @@ Un retiro sin KYC verificado, correo verificado y 2FA activo responde **403**. L
 política se evalúa **antes** que el saldo: no importa cuánto tengas si no cumples
 los requisitos.
 
-## 6. Límites de retiro
+## 7. Límites de retiro
 
 | Ventana | Límite |
 |---|---|

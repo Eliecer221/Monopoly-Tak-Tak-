@@ -26,6 +26,7 @@ import { createPool, migrate, LedgerRepository } from "./ledger.mjs";
 import { OutboxWorker } from "./outbox-worker.mjs";
 import { FinancialPolicy } from "./policy.mjs";
 import { createAirtmProvider } from "./airtm.mjs";
+import { checkOperatorPayout } from "./operator.mjs";
 import {
   PROVIDERS,
   createCheckout,
@@ -252,6 +253,11 @@ export function createServer({
         zinli: zinliConfigured(env),
         aiReceipts: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY),
         ledger: Boolean(ledgerRepo),
+        operatorPayout: (() => {
+          const op = checkOperatorPayout(env);
+          // Solo se publica la forma de la configuración, nunca el valor.
+          return { channel: op.channel, configured: op.ok };
+        })(),
         airtm: { enabled: Boolean(airtmProvider?.enabled), mode: airtmProvider?.name || "desconocido" },
       });
     }

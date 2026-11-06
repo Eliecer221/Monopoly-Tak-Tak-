@@ -43,6 +43,8 @@ jobs:
         run: npm run test:platform
       - name: Pruebas de integración (interfaz + API)
         run: node test/integration.mjs
+      - name: Pruebas del cobro del operador
+        run: npm run test:operator
       - name: Pruebas de Airtm, política y outbox
         run: npm run test:payments
       - name: Pruebas del libro contable (concurrencia real)
