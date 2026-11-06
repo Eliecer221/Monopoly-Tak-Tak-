@@ -1,5 +1,9 @@
 import crypto from "node:crypto";
 
+// Monedas que recibe una cuenta nueva. El mismo número se emite en el libro
+// contable al registrarse, para que el saldo del juego y el del libro cuadren.
+export const WELCOME_COINS = 500;
+
 // Catálogo de la tienda y lógica de compra.
 //
 // Esto es lo que genera ingresos reales: el juego es gratis y el jugador paga

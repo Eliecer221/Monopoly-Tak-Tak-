@@ -319,15 +319,15 @@ async function main() {
     assert(res.status === 403, "una cuenta autoexcluida pudo comprar");
     console.log("✓ Autoexclusión: bloquea las compras de inmediato");
 
-    // Bote 60/40
+    // Partidas con entrada: sin libro contable no se puede apostar dinero real.
+    // La ruta antigua, que aceptaba el bote del cliente, ya no existe.
     res = await request(base, "/api/pot/settle", post({ buyIn: 100, players: 8, winner: true }, token));
-    assert(res.status === 200, `no se liquidó el bote: ${JSON.stringify(res.body)}`);
-    assert(res.body.pot === 800 && res.body.winner === 480 && res.body.house === 320, `el reparto del bote está mal: ${JSON.stringify(res.body)}`);
-    res = await request(base, "/api/pot/settle", post({ buyIn: 100, players: 9, winner: true }, token));
-    assert(res.status === 400, "se permitió una partida de 9 jugadores");
-    res = await request(base, "/api/pot/settle", post({ buyIn: 100, players: 4, winner: false }, token));
-    assert(res.status === 400, "se liquidó el bote sin ser ganador");
-    console.log("✓ Bote: 2–8 jugadores, reparto 60/40 y solo el ganador liquida");
+    assert(res.status === 405 || res.status === 404, "la ruta antigua del bote debería estar cerrada");
+    res = await request(base, "/api/rounds/open", post({ buyIn: 100, players: 4 }, token));
+    assert(res.status === 503, `sin libro contable no se abre partida: ${res.status}`);
+    const health = await request(base, "/health", get());
+    assert(health.body.realMoneyRounds === false, "las partidas reales deben venir apagadas por defecto");
+    console.log("✓ Partidas: sin libro contable no se apuesta dinero real y la ruta vieja está cerrada");
   } finally {
     await new Promise((r) => server.close(r));
   }

@@ -20,7 +20,7 @@ import { Accounts, publicUser } from "./auth.mjs";
 import { Store, catalog, productById } from "./store.mjs";
 import { Kyc, checkPurchaseAllowed, selfExclude, limitsFor } from "./kyc.mjs";
 import { ReceiptValidator } from "./ai-receipts.mjs";
-import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinliPayTo } from "./zinli.mjs";
+import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinliPayTo, POT_WINNER_SHARE } from "./zinli.mjs";
 import { verifyTotp } from "./totp.mjs";
 import { createPool, migrate, LedgerRepository } from "./ledger.mjs";
 import { OutboxWorker } from "./outbox-worker.mjs";
@@ -163,6 +163,26 @@ export function createServer({
   const financialPolicy =
     policy || (database ? new FinancialPolicy(database, { adminToken: env.ADMIN_TOKEN }) : null);
   const airtmProvider = airtm || createAirtmProvider(env);
+  // Las partidas con entrada real son dinero real. Quedan APAGADAS por defecto:
+  // exigen un flag explícito además del libro contable. Sin él, la ruta responde
+  // 503 y el juego funciona igual sin apostar.
+  const realMoneyRounds = env.REAL_MONEY_ROUNDS === "1";
+
+  // Emite en el libro las monedas de una compra ya pagada. Si el libro no está
+  // configurado, la compra sigue funcionando con el saldo de Mongo.
+  async function mintOrderCoins(order, credited) {
+    if (!ledgerRepo || credited?.value?.alreadyPaid) return;
+    const product = productById(order.productId);
+    if (!product?.coins) return;
+    try {
+      await ledgerRepo.mintCoins({
+        orderId: order.id,
+        userId: order.userId,
+        coins: product.coins,
+        reference: order.provider || "",
+      });
+    } catch { /* el libro es opcional */ }
+  }
 
   async function getDb() {
     if (database) return database;
@@ -253,6 +273,7 @@ export function createServer({
         zinli: zinliConfigured(env),
         aiReceipts: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY),
         ledger: Boolean(ledgerRepo),
+        realMoneyRounds: realMoneyRounds && Boolean(ledgerRepo),
         operatorPayout: (() => {
           const op = checkOperatorPayout(env);
           // Solo se publica la forma de la configuración, nunca el valor.
@@ -309,7 +330,7 @@ export function createServer({
 
         try {
           await financialPolicy.authorize({ actor: user, action: "withdraw" });
-          await financialPolicy.checkLimits({ actor: user, amount });
+          await financialPolicy.checkLimits({ actor: user, amount, ledger: ledgerRepo });
           const result = await ledgerRepo.requestWithdrawalOnce({
             userId: user.id,
             amount,
@@ -401,6 +422,19 @@ export function createServer({
       if (!acc) return send(res, 503, { error: "cuentas no configuradas" });
       const result = await acc.signup(parsed.value);
       if (result.error) return send(res, 400, { error: result.error });
+      // El saldo de bienvenida también entra en el libro. Si falla, no se
+      // bloquea el registro: el juego funciona con el saldo de Mongo y el
+      // usuario podrá jugar en cuanto el libro esté disponible.
+      if (ledgerRepo) {
+        try {
+          await ledgerRepo.mintCoins({
+            orderId: `welcome:${result.value.user.id}`,
+            userId: result.value.user.id,
+            coins: WELCOME_COINS,
+            reference: "saldo de bienvenida",
+          });
+        } catch { /* el registro no depende del libro */ }
+      }
       return send(res, 201, result.value);
     }
 
@@ -419,7 +453,16 @@ export function createServer({
     if (pathname === "/api/auth/me" && req.method === "GET") {
       const session = await requireUser(req, res);
       if (!session) return;
-      return send(res, 200, { user: publicUser(session.user) });
+      const user = publicUser(session.user);
+      // Si hay libro contable, el saldo que ve el juego es el del libro: es la
+      // única fuente de verdad del dinero.
+      if (ledgerRepo) {
+        try {
+          const amount = await ledgerRepo.userBalance(session.user.id);
+          user.wallet = { ...user.wallet, coins: Number(amount) };
+        } catch { /* se mantiene el saldo de Mongo */ }
+      }
+      return send(res, 200, { user });
     }
 
     if (pathname === "/api/auth/logout" && req.method === "POST") {
@@ -683,7 +726,8 @@ export function createServer({
       });
       const review = await validator.review({ order, image, declaredReference: reference, user: session.user, attemptsToday });
       if (review.verdict === "approved") {
-        await s.creditOrder(order.id, `zinli:${review.imageHash.slice(0, 16)}`);
+        const credited = await s.creditOrder(order.id, `zinli:${review.imageHash.slice(0, 16)}`);
+        await mintOrderCoins(order, credited);
         return send(res, 200, { verdict: "approved", score: review.score, reasons: review.reasons });
       }
       return send(res, 200, { verdict: review.verdict, score: review.score, reasons: review.reasons });
@@ -714,7 +758,10 @@ export function createServer({
       const s = await shop();
       const order = await s.getOrder(orderId);
       if (!order) return send(res, 404, { error: "orden desconocida" });
-      if (approve) await s.creditOrder(orderId, "manual:admin");
+      if (approve) {
+        const credited = await s.creditOrder(orderId, "manual:admin");
+        await mintOrderCoins(order, credited);
+      }
       else await s.orders.updateOne({ id: orderId }, { $set: { status: "rejected" } });
       return send(res, 200, { ok: true, status: approve ? "paid" : "rejected" });
     }
@@ -764,55 +811,109 @@ export function createServer({
     }
 
     // ---------- bote de monedas de la partida ----------
-    if (pathname === "/api/pot/settle" && req.method === "POST") {
+    // ---------- partida con entrada: el servidor fija las reglas ----------
+    // El cliente NO decide la entrada, ni los jugadores, ni el ganador. Abre la
+    // partida el servidor, con las reglas y la entrada apartada en el libro.
+    if (pathname === "/api/rounds/open" && req.method === "POST") {
       const session = await requireUser(req, res);
       if (!session) return;
+      if (!ledgerRepo) return send(res, 503, { error: "libro contable no configurado" });
+      if (!realMoneyRounds) {
+        return send(res, 503, { error: "las partidas con dinero real están desactivadas" });
+      }
       const parsed = await readBody(req);
       if (parsed.error) return send(res, 400, { error: parsed.error });
       const buyIn = validateBuyIn(parsed.value?.buyIn);
       if (buyIn.error) return send(res, 400, { error: buyIn.error });
+      if (buyIn.value <= 0) return send(res, 400, { error: "la entrada debe ser mayor que cero" });
       const players = Number(parsed.value?.players);
       if (!Number.isInteger(players) || players < 2 || players > 8) {
         return send(res, 400, { error: "la partida necesita de 2 a 8 jugadores" });
       }
-      if (parsed.value?.winner !== true) {
-        return send(res, 400, { error: "solo el ganador liquida el bote" });
+      // La comisión la fija el servidor, no el cliente.
+      const winnerSharePct = Math.round(POT_WINNER_SHARE * 100);
+      try {
+        const roundId = `rnd_${crypto.randomUUID()}`;
+        const result = await ledgerRepo.openRound({
+          hostUserId: session.user.id,
+          buyIn: buyIn.value,
+          maxPlayers: players,
+          winnerSharePct,
+          roundId,
+        });
+        await ledgerRepo.audit({ actorId: session.user.id, action: "round.open", target: roundId });
+        return send(res, 201, {
+          roundId,
+          buyIn: buyIn.value,
+          players,
+          // Lo único que se guarda de verdad es la entrada del anfitrión.
+          entry: result.entry,
+          winnerCredit: result.winnerCredit,
+          rake: result.rake,
+        });
+      } catch (err) {
+        const code = err.code || "ERROR";
+        const status =
+          code === "INSUFFICIENT_FUNDS" ? 403 : code.startsWith("BAD_") ? 400 : 500;
+        return send(res, status, { error: err.message, code });
       }
-      const pot = buyIn.value * players;
-      if ((session.user.wallet?.coins || 0) < buyIn.value) {
-        return send(res, 403, { error: "no tienes monedas para el buy-in" });
+    }
+
+    // Cierra la partida. El servidor recalcula todo con las reglas guardadas al
+    // abrir: ni el bote ni el reparto salen del cliente.
+    if (pathname === "/api/rounds/settle" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      if (!ledgerRepo) return send(res, 503, { error: "libro contable no configurado" });
+      if (!realMoneyRounds) {
+        return send(res, 503, { error: "las partidas con dinero real están desactivadas" });
       }
-      const { winner, house } = splitPot(pot);
-      const d = await getDb();
-      const fresh = await d.collection("users").findOne({ id: session.user.id });
-      await d.collection("users").updateOne(
-        { id: session.user.id },
-        {
-          $set: {
-            wallet: {
-              ...fresh.wallet,
-              coins: (fresh.wallet?.coins || 0) - buyIn.value + winner,
-            },
-            stats: {
-              ...(fresh.stats || {}),
-              gamesPlayed: (fresh.stats?.gamesPlayed || 0) + 1,
-              gamesWon: (fresh.stats?.gamesWon || 0) + 1,
-            },
-          },
-        }
-      );
-      await d.collection("transactions").insertOne({
-        id: crypto.randomUUID(),
-        userId: session.user.id,
-        kind: "pot",
-        buyIn: buyIn.value,
-        players,
-        pot,
-        winnerShare: winner,
-        houseShare: house,
-        at: new Date().toISOString(),
-      });
-      return send(res, 200, { pot, winner, house, players });
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const roundId = String(parsed.value?.roundId || "");
+      if (!roundId) return send(res, 400, { error: "falta la partida" });
+      const won = parsed.value?.won;
+      if (typeof won !== "boolean") return send(res, 400, { error: "falta el resultado de la partida" });
+      try {
+        const result = await ledgerRepo.settleRound({
+          roundId,
+          winnerUserId: session.user.id,
+          players: Number(parsed.value?.players),
+          won,
+        });
+        await ledgerRepo.audit({
+          actorId: session.user.id,
+          action: "round.settle",
+          target: roundId,
+          detail: { won },
+        });
+        const amount = await ledgerRepo.userBalance(session.user.id);
+        return send(res, 200, { ...result, balance: amount.toString() });
+      } catch (err) {
+        const code = err.code || "ERROR";
+        const status =
+          code === "NO_ROUND" ? 404 :
+          code === "ROUND_CLOSED" || code === "WINNER_NOT_PARTICIPANT" ? 409 :
+          code.startsWith("BAD_") || code === "TOO_MANY_PLAYERS" || code === "PLAYERS_MISMATCH" ? 400 : 500;
+        return send(res, status, { error: err.message, code });
+      }
+    }
+
+    if (pathname === "/api/rounds/cancel" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      if (!ledgerRepo) return send(res, 503, { error: "libro contable no configurado" });
+      if (!realMoneyRounds) {
+        return send(res, 503, { error: "las partidas con dinero real están desactivadas" });
+      }
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      try {
+        const result = await ledgerRepo.cancelRound({ roundId: String(parsed.value?.roundId || "") });
+        return send(res, 200, result);
+      } catch (err) {
+        return send(res, err.code === "NO_ROUND" ? 404 : 409, { error: err.message, code: err.code });
+      }
     }
 
     if (req.method === "GET" || req.method === "HEAD") return serveStatic(res, pathname);

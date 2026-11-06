@@ -79,3 +79,38 @@ npm run serve:static # solo el juego, sin backend
   de `css/styles.css` es parte del contrato: el modal se alinea arriba y no desborda,
   los botones de juego quedan fijos abajo (`.actions`) y los controles miden 44px o más.
   `test/ui.mjs` comprueba estas reglas para que no se pierdan.
+
+## Dinero real: una sola verdad y custodia
+
+Reglas que no se negocian, porque cada una tapa un agujero que ya existió:
+
+- **El libro contable (PostgreSQL) es la única fuente de verdad del dinero.** Si
+  hay `DATABASE_URL`, el saldo que ve el juego sale de los asientos, no de
+  `wallet.coins` de Mongo. Mongo sigue siendo el respaldo cuando no hay libro.
+- **El servidor decide, el cliente solo informa.** Al abrir una partida, las
+  reglas (entrada, jugadores, reparto) se guardan en la base. Al cerrarla, el
+  servidor las vuelve a comprobar. El cliente no manda el bote, ni el ganador,
+  ni los jugadores.
+- **Nunca se paga más de lo que se guardó.** La custodia de una partida es la
+  entrada del anfitrión. El bote nominal (entrada × jugadores) NO es dinero
+  guardado: los rivales son bots. Pagar un porcentaje del bote nominal crea
+  monedas de la nada, y esas monedas se pueden retirar. `test/rounds.mjs`
+  comprueba que cerrar 100 partidas no crea ni una moneda.
+- **Signos del libro.** Las cuentas de pasivo van en negativo. Cobrar a un
+  usuario es un asiento POSITIVO; el ingreso de la casa es NEGATIVO. Equivocar
+  el signo duplica el dinero en lugar de quitarlo.
+- **Los límites de retiro se suman de los asientos**, no de contadores. Un
+  contador puede desincronizarse; la suma siempre cuadra.
+- **Las partidas con entrada real están apagadas por defecto**
+  (`REAL_MONEY_ROUNDS=0`). Es dinero real y juego: hace falta licencia. Con el
+  flag apagado, `/api/rounds/*` responde 503 y el juego funciona sin apostar.
+  No lo enciendas sin licencia.
+
+## Pruebas
+
+- `npm test` cubre motor, servidor, interfaz, tienda, plataforma, integración,
+  pagos, libro contable y partidas.
+- Las pruebas del libro y de partidas necesitan PostgreSQL real
+  (`DATABASE_URL`). Sin él se saltan, no fallan. En local:
+  `docker compose up -d postgres`, y el puerto es el que declare el compose.
+- `node --check` en cada archivo tocado antes de dar algo por terminado.

@@ -80,6 +80,13 @@ Nada de esta lista se puede resolver escribiendo más código:
 | **Auditoría externa** | Un sistema que custodia dinero ajeno debe auditarse. |
 | **Persona jurídica y cuenta de comercio** | Requisito legal, no técnico. |
 
+### Las partidas con entrada están construidas pero apagadas
+
+Ver la sección 3-bis. El motor existe, está probado contra PostgreSQL real y
+cierra dos agujeros graves (bote inflado desde el cliente y monedas creadas de
+la nada). Pero queda apagado por defecto con `REAL_MONEY_ROUNDS=0` hasta que
+haya licencia de juego.
+
 ### Airtm está cerrado por defecto
 
 `server/airtm.mjs` no tiene ni un endpoint. `ENDPOINTS` está **vacío a
@@ -167,6 +174,77 @@ Publica **solo la forma**, nunca el valor.
 resto, así que en un bote de 7 monedas el ganador se lleva 6 y tú 1. Con
 `Math.round` a favor del ganador, **tu parte nunca baja del 10%**, y la suma
 siempre cuadra. Probado con 10, 100, 999 y 12.345.
+
+## 3-bis. Partidas con entrada real (APAGADAS)
+
+Construí el flujo de partida con entrada de verdad, con la custodia en el libro
+contable. Y encontré dos agujeros graves mientras lo hacía. Los dos están
+cerrados y probados. Pero la función queda **apagada por defecto**, y quiero ser
+explícito sobre por qué.
+
+### Los dos agujeros que tenía el código anterior
+
+**1. El cliente decidía cuánto valía el bote.** La ruta antigua (`/api/pot/settle`)
+aceptaba `players` del cuerpo de la petición. Mandar `players: 8` en una partida
+de 2 multiplicaba el bote por cuatro. El servidor pagaba ese bote inventado.
+
+**2. El dinero se creaba de la nada.** Peor que el anterior. Los rivales son
+**bots locales** (`js/main.js`), así que en el bote solo hay **una cuenta real**:
+la del jugador. Pero el reparto pagaba un porcentaje del bote *nominal*:
+
+```
+entrada = 100 · jugadores = 3
+bote nominal = 300        ← solo entraron 100 de verdad
+pago al ganador = 180     ← 80 monedas que nadie puso
+```
+
+Ochenta monedas por partida. Y esas monedas se podían retirar. Un bucle
+convertía monedas falsas en dinero real.
+
+### Cómo está cerrado ahora
+
+El servidor fija las reglas al **abrir** la partida y las vuelve a comprobar al
+**cerrar**. El cliente no elige ni la entrada, ni los jugadores, ni el ganador,
+ni el reparto.
+
+La regla de oro es una: **nunca se paga más de lo que se guardó.**
+
+| | Cuánto |
+|---|---|
+| Lo que se guarda | la entrada del anfitrión |
+| Si ganas | recuperas la entrada menos la comisión de la casa |
+| Si pierdes | la entrada va entera a la casa |
+| Si se cancela | vuelve la entrada entera |
+
+Ganar contra bots **no multiplica** el dinero: devuelve la entrada menos la
+comisión. Es honesto, y es lo único que cuadra cuando el rival es un bot.
+
+### Las pruebas que lo demuestran
+
+`test/rounds.mjs`, contra PostgreSQL real:
+
+- Abrir aparta la entrada y anuncia el premio real (60 de 100, no 180 de 300).
+- Ganar devuelve la entrada menos la comisión; perder la entrega entera.
+- **Cerrar 100 partidas seguidas no crea ni una moneda.** Es la prueba clave:
+  si el reparto pagara del bote nominal, el saldo crecería sin límite.
+- Inflar los jugadores desde el cliente se rechaza.
+- Ganar sin ser el anfitrión se rechaza.
+- Cerrar dos veces no paga dos veces.
+- El libro sigue cuadrando a cero.
+
+### Por qué está apagado
+
+Esta función **es el bote con apuestas** que me negué a implementar sin licencia.
+No puedo cerrar sus agujeros de seguridad y a la vez dejarla encendida. Así que
+está construida, probada y **apagada**:
+
+```
+REAL_MONEY_ROUNDS="0"   # por defecto
+```
+
+Con el flag apagado, las rutas `/api/rounds/*` responden 503 y el juego funciona
+igual: se juega sin apostar. Para encenderla hacen falta **dos** cosas: el flag
+`REAL_MONEY_ROUNDS=1` y `DATABASE_URL`. Sin licencia de juego, no la enciendas.
 
 ## 4. Cómo probarlo
 

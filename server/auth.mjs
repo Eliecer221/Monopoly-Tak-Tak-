@@ -3,6 +3,7 @@
 
 import crypto from "node:crypto";
 import { generateBackupCodes, generateSecret, otpauthUrl, verifyTotp } from "./totp.mjs";
+import { WELCOME_COINS } from "./store.mjs";
 
 const SCRYPT_KEYLEN = 64;
 const SESSION_DAYS = 30;
@@ -60,7 +61,7 @@ export class Accounts {
       salt,
       hash,
       createdAt: new Date().toISOString(),
-      wallet: { coins: 500, gems: 5, dice: 0 },
+      wallet: { coins: WELCOME_COINS, gems: 5, dice: 0 },
       stats: { gamesPlayed: 0, gamesWon: 0, bestNetWorth: 0 },
       purchases: 0,
       spentCents: 0,

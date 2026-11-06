@@ -18,6 +18,8 @@ const env = {
   PROJECT_ID: "tak-tak",
   COIN_SYMBOL: "MTC",
   TAKTAK_DEV_CODES: "1",
+  // Las partidas con dinero real exigen este flag explícito.
+  REAL_MONEY_ROUNDS: "1",
 };
 const server = createServer({ env });
 await new Promise((r) => server.listen(0, r));
@@ -40,6 +42,7 @@ try {
   const health = await call("/health");
   assert(health.json.ledger === true, "el health debería indicar el libro activo");
   assert(health.json.airtm.enabled === false, "Airtm debería estar apagado");
+  assert(health.json.realMoneyRounds === true, "con el flag, las partidas reales deben estar activas");
   console.log("✓ Health: libro contable activo, Airtm apagado");
 
   // Registrar un usuario.
@@ -150,6 +153,88 @@ try {
   assert(rec.json.ledgerTotal === "0", `el libro debería cuadrar a cero, es ${rec.json.ledgerTotal}`);
   assert(rec.json.ok === true, "la conciliación debería dar bien");
   console.log("✓ Conciliación con token: el libro cuadra a cero");
+
+  // ---------- partidas con entrada por HTTP ----------
+  // El usuario ya tiene 300 monedas y cumple KYC, correo y 2FA.
+  const open = await call("/api/rounds/open", {
+    method: "POST",
+    headers: auth,
+    body: { buyIn: 100, players: 4 },
+  });
+  assert(open.status === 201, `no se abrió la partida: ${open.status} ${open.text}`);
+  // La custodia es la entrada, no el bote nominal de 400.
+  assert(open.json.entry === "100", `la custodia debería ser 100, es ${open.json.entry}`);
+  assert(open.json.winnerCredit === "60", `el premio real debería ser 60, es ${open.json.winnerCredit}`);
+  const roundId = open.json.roundId;
+  console.log("✓ Partida: se abre con la entrada apartada y el premio real anunciado");
+
+  // Ganar: cobra el 60% de la entrada. El saldo baja 40, que es la comisión.
+  const win = await call("/api/rounds/settle", {
+    method: "POST",
+    headers: auth,
+    body: { roundId, players: 4, won: true },
+  });
+  assert(win.status === 200, `no se cerró la partida: ${win.status} ${win.text}`);
+  assert(win.json.balance === "260", `el saldo debería ser 260, es ${win.json.balance}`);
+  console.log("✓ Partida: ganar devuelve la entrada menos la comisión (saldo 260)");
+
+  // Repetir el cierre no paga dos veces.
+  const again = await call("/api/rounds/settle", {
+    method: "POST",
+    headers: auth,
+    body: { roundId, players: 4, won: true },
+  });
+  assert(again.status === 409, `cerrar dos veces debería ser 409, fue ${again.status}`);
+  const bal = await call("/api/ledger/balance", { headers: auth });
+  assert(bal.json.amount === "260", `el saldo no debe cambiar, es ${bal.json.amount}`);
+  console.log("✓ Partida: cerrar dos veces no paga dos veces");
+
+  // El ataque: inflar los jugadores para inflar el bote.
+  const open2 = await call("/api/rounds/open", {
+    method: "POST",
+    headers: auth,
+    body: { buyIn: 50, players: 2 },
+  });
+  const cheat = await call("/api/rounds/settle", {
+    method: "POST",
+    headers: auth,
+    body: { roundId: open2.json.roundId, players: 8, won: true },
+  });
+  assert(cheat.status === 400, `inflar el bote debería ser 400, fue ${cheat.status}`);
+  const balCheat = await call("/api/ledger/balance", { headers: auth });
+  assert(balCheat.json.amount === "260", `el saldo no debe cambiar, es ${balCheat.json.amount}`);
+  console.log("✓ Partida: inflar el bote desde el cliente se rechaza");
+
+  // Perder entrega la entrada entera.
+  const lose = await call("/api/rounds/settle", {
+    method: "POST",
+    headers: auth,
+    body: { roundId: open2.json.roundId, players: 2, won: false },
+  });
+  assert(lose.status === 200, `no se cerró al perder: ${lose.status} ${lose.text}`);
+  assert(lose.json.balance === "210", `al perder el saldo debería ser 210, es ${lose.json.balance}`);
+  console.log("✓ Partida: perder entrega la entrada entera (saldo 210)");
+
+  // Cancelar devuelve la entrada.
+  const open3 = await call("/api/rounds/open", {
+    method: "POST",
+    headers: auth,
+    body: { buyIn: 100, players: 2 },
+  });
+  const cancel = await call("/api/rounds/cancel", {
+    method: "POST",
+    headers: auth,
+    body: { roundId: open3.json.roundId },
+  });
+  assert(cancel.status === 200, `no se canceló: ${cancel.status} ${cancel.text}`);
+  const balCancel = await call("/api/ledger/balance", { headers: auth });
+  assert(balCancel.json.amount === "210", `cancelar no debe mover el saldo, es ${balCancel.json.amount}`);
+  console.log("✓ Partida: cancelar devuelve la entrada");
+
+  // El libro sigue cuadrando a cero tras jugar.
+  const rec2 = await call("/api/ledger/reconcile", { method: "POST", headers: { "x-admin-token": "tok-admin-test" } });
+  assert(rec2.json.ok === true, `el libro no cuadra: ${rec2.json.difference}`);
+  console.log("✓ Partida: el libro sigue cuadrando a cero tras jugar");
 
   console.log("\n✅ Pruebas del servidor con el libro contable superadas");
 } finally {

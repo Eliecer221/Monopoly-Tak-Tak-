@@ -19,6 +19,7 @@
 // Por eso `rawBalance` devuelve el signo contable y `liabilityBalance` lo
 // invierte, para que "lo que se debe al usuario" sea un número positivo.
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
@@ -293,45 +294,80 @@ export class LedgerRepository {
     });
   }
 
+  // Emite monedas por una compra pagada. En este libro el activo son las
+  // monedas, así que emitirlas se anota contra el ingreso de la plataforma: la
+  // suma sigue siendo cero y no se crea valor de la nada.
+  async mintCoins({ orderId, userId, coins, reference = "" }) {
+    if (!Number.isInteger(coins) || coins <= 0) fail("BAD_AMOUNT", "monedas inválidas");
+    return this.transaction(async (client) => {
+      const user = await this.ensureUserAccount(client, userId);
+      const revenue = await this.ensureSystemAccount(client, SYSTEM_ACCOUNTS.PURCHASE_REVENUE);
+      await this.lockBalance(client, user);
+      const result = await this.post(client, {
+        postingKey: `purchase:${orderId}`,
+        memo: `compra ${orderId} ${reference}`.trim(),
+        entries: [
+          { accountId: user, amount: -BigInt(coins) },
+          { accountId: revenue, amount: BigInt(coins) },
+        ],
+      });
+      if (!result.alreadyPosted) {
+        await this.enqueue(client, {
+          topic: "purchase.minted",
+          dedupeKey: `purchase.minted:${orderId}`,
+          payload: { orderId, userId, coins },
+        });
+      }
+      return { minted: !result.alreadyPosted, coins };
+    });
+  }
+
   // ---------- reservas ----------
 
   // Aparta monedas. Se comprueba el saldo con la fila bloqueada, así que dos
   // reservas simultáneas no pueden gastar las mismas monedas.
-  async reserve({ userId, amount, reason = "", reservationKey }) {
+  async reserve({ userId, amount, reason = "", reservationKey, client = null }) {
     if (!Number.isInteger(amount) || amount <= 0) fail("BAD_AMOUNT", "reserva inválida");
     if (!reservationKey) fail("NO_KEY", "falta la clave de la reserva");
+    if (client) return this._reserveIn(client, { userId, amount, reservationKey });
+    return this.transaction((c) => this._reserveIn(c, { userId, amount, reservationKey }));
+  }
 
-    return this.transaction(async (client) => {
-      const existing = await client.query(
-        `SELECT id, status, amount FROM reservations WHERE project_id=$1 AND user_id=$2 AND reason=$3 AND status='held'`,
-        [this.projectId, userId, reservationKey]
-      );
-      if (existing.rows[0]) {
-        return { reservationId: existing.rows[0].id, alreadyHeld: true };
-      }
+  // Cuerpo de la reserva, sobre una transacción ya abierta.
+  async _reserveIn(client, { userId, amount, reservationKey }) {
+    const existing = await client.query(
+      `SELECT id, status, amount FROM reservations WHERE project_id=$1 AND user_id=$2 AND reason=$3 AND status='held'`,
+      [this.projectId, userId, reservationKey]
+    );
+    if (existing.rows[0]) {
+      return { reservationId: existing.rows[0].id, alreadyHeld: true };
+    }
 
-      const user = await this.ensureUserAccount(client, userId);
+    const user = await this.ensureUserAccount(client, userId);
 
-      // El bloqueo va PRIMERO. Lo reservado se lee después, ya en exclusiva:
-      // si se leyera antes, dos transacciones verían el mismo disponible y
-      // ambas pasarían, gastando las mismas monedas.
-      await this.lockBalance(client, user);
-      const balance = await this.liabilityBalance(client, user);
-      const held = await this.queryHeld(client, userId);
-      const available = balance - held;
+    // El bloqueo va PRIMERO. Lo reservado se lee después, ya en exclusiva:
+    // si se leyera antes, dos transacciones verían el mismo disponible y
+    // ambas pasarían, gastando las mismas monedas.
+    await this.lockBalance(client, user);
+    const balance = await this.liabilityBalance(client, user);
+    const held = await this.queryHeld(client, userId);
+    const available = balance - held;
 
-      if (available < BigInt(amount)) {
-        fail("INSUFFICIENT_FUNDS", `saldo disponible ${available}, se piden ${amount}`);
-      }
+    if (available < BigInt(amount)) {
+      fail("INSUFFICIENT_FUNDS", `saldo disponible ${available}, se piden ${amount}`);
+    }
 
-      const inserted = await client.query(
-        `INSERT INTO reservations (project_id, user_id, asset_id, amount, reason)
-         VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-        [this.projectId, userId, this.assetId, amount, reservationKey]
-      );
+    const inserted = await client.query(
+      `INSERT INTO reservations (project_id, user_id, asset_id, amount, reason)
+       VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+      [this.projectId, userId, this.assetId, amount, reservationKey]
+    );
 
-      return { reservationId: inserted.rows[0].id, alreadyHeld: false, available: available - BigInt(amount) };
-    });
+    return {
+      reservationId: inserted.rows[0].id,
+      alreadyHeld: false,
+      available: available - BigInt(amount),
+    };
   }
 
   async releaseReservation({ reservationId }) {
@@ -379,6 +415,194 @@ export class LedgerRepository {
         [reservationId]
       );
       return { consumed: true, amount: BigInt(rows[0].amount) };
+    });
+  }
+
+  // Suma de retiros ya pedidos en cada ventana. El tope se calcula sumando,
+  // no con contadores: así no se puede desincronizar.
+  async withdrawalTotals(userId, now = new Date()) {
+    const day = new Date(now.getTime() - 864e5).toISOString();
+    const week = new Date(now.getTime() - 7 * 864e5).toISOString();
+    const month = new Date(now.getTime() - 30 * 864e5).toISOString();
+    const { rows } = await this.pool.query(
+      `SELECT
+         COALESCE(SUM(amount) FILTER (WHERE created_at >= $2), 0)::bigint AS d,
+         COALESCE(SUM(amount) FILTER (WHERE created_at >= $3), 0)::bigint AS w,
+         COALESCE(SUM(amount) FILTER (WHERE created_at >= $4), 0)::bigint AS m
+       FROM withdrawals
+        WHERE project_id=$1 AND user_id=$5 AND status <> 'rejected'`,
+      [this.projectId, day, week, month, userId]
+    );
+    return {
+      day: BigInt(rows[0].d),
+      week: BigInt(rows[0].w),
+      month: BigInt(rows[0].m),
+    };
+  }
+
+  // ---------- partidas con entrada ----------
+
+  // Abre una partida y aparta la entrada del anfitrión. El servidor fija las
+  // reglas aquí; el cliente no las elige. Devuelve el reparto que usará el
+  // cierre, calculado ya sobre el bote máximo.
+  async openRound({ hostUserId, buyIn, maxPlayers, winnerSharePct, roundId }) {
+    if (!Number.isInteger(buyIn) || buyIn <= 0) fail("BAD_BUY_IN", "entrada inválida");
+    if (!Number.isInteger(maxPlayers) || maxPlayers < 2 || maxPlayers > 8) {
+      fail("BAD_PLAYERS", "jugadores inválidos");
+    }
+    if (!Number.isInteger(winnerSharePct) || winnerSharePct < 0 || winnerSharePct > 100) {
+      fail("BAD_SHARE", "reparto inválido");
+    }
+    const id = roundId || `rnd_${crypto.randomUUID()}`;
+
+    return this.transaction(async (client) => {
+      const existing = await client.query(
+        `SELECT * FROM rounds WHERE id=$1 AND project_id=$2`,
+        [id, this.projectId]
+      );
+      if (existing.rows[0]) return { duplicate: true, round: existing.rows[0] };
+
+      const { reservationId } = await this.reserve({
+        userId: hostUserId,
+        amount: buyIn,
+        reason: `entrada de la partida ${id}`,
+        reservationKey: `round:${id}:entry`,
+        client,
+      });
+
+      // La custodia real es solo la entrada del anfitrión. El bote nominal
+      // (entrada x jugadores) NO es dinero guardado: los rivales son bots y su
+      // parte nunca entró. Por eso se informa del premio real, no del nominal.
+      const entry = BigInt(buyIn);
+      const rake = (entry * (100n - BigInt(winnerSharePct))) / 100n;
+
+      const { rows } = await client.query(
+        `INSERT INTO rounds
+           (id, project_id, host_user_id, buy_in, max_players, winner_share_pct, status, reservation_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'open',$7)
+         RETURNING *`,
+        [id, this.projectId, hostUserId, buyIn, maxPlayers, winnerSharePct, reservationId]
+      );
+
+      await this.enqueue(client, {
+        topic: "round.opened",
+        dedupeKey: `round.opened:${id}`,
+        payload: { roundId: id, hostUserId, buyIn, maxPlayers },
+      });
+
+      return {
+        duplicate: false,
+        round: rows[0],
+        entry: entry.toString(),
+        winnerCredit: (entry - rake).toString(),
+        rake: rake.toString(),
+      };
+    });
+  }
+
+  // Cierra la partida y reparte. La custodia es exactamente la entrada del
+  // anfitrión: no hay más dinero real en juego.
+  //
+  // Regla de oro: nunca se paga más de lo que se guardó. Por eso el premio es
+  // `entrada - comisión`, y nunca un porcentaje del bote nominal. Si se pagara
+  // un porcentaje del bote nominal se crearían monedas de la nada, porque los
+  // rivales son bots y su parte de la entrada nunca llegó a entrar.
+  //
+  // Ganar contra bots no multiplica el dinero: devuelve la entrada menos la
+  // comisión de la casa. Perder la entrega entera.
+  async settleRound({ roundId, winnerUserId, players, won }) {
+    const count = Number(players);
+    if (!Number.isInteger(count) || count < 2 || count > 8) {
+      fail("BAD_PLAYERS", "jugadores inválidos");
+    }
+    if (!winnerUserId) fail("NO_WINNER", "falta el ganador");
+    if (typeof won !== "boolean") fail("BAD_OUTCOME", "falta el resultado de la partida");
+
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM rounds WHERE id=$1 AND project_id=$2 FOR UPDATE`,
+        [roundId, this.projectId]
+      );
+      const round = rows[0];
+      if (!round) fail("NO_ROUND", "la partida no existe");
+      if (round.status !== "open") fail("ROUND_CLOSED", "la partida ya está cerrada");
+      if (winnerUserId !== round.host_user_id) {
+        fail("WINNER_NOT_PARTICIPANT", "el ganador no es el anfitrión de la partida");
+      }
+      if (count > round.max_players) fail("TOO_MANY_PLAYERS", "hay más jugadores que plazas");
+
+      const reservation = await client.query(
+        `SELECT id, user_id, amount, status FROM reservations
+          WHERE id=$1 AND project_id=$2 FOR UPDATE`,
+        [round.reservation_id, this.projectId]
+      );
+      if (!reservation.rows[0]) fail("NO_RESERVATION", "falta la entrada apartada");
+      if (reservation.rows[0].status !== "held") fail("NOT_HELD", "la entrada ya se usó");
+
+      const held = BigInt(reservation.rows[0].amount);
+      const rake = won ? (held * (100n - BigInt(round.winner_share_pct))) / 100n : held;
+      const credit = held - rake;
+
+      const user = await this.ensureUserAccount(client, round.host_user_id);
+      const revenue = await this.ensureSystemAccount(client, SYSTEM_ACCOUNTS.ROUND_ENTRY_REVENUE);
+      await this.lockBalance(client, user);
+
+      // La entrada apartada se cobra aquí. En este libro las cuentas de pasivo
+      // van en negativo, así que cobrar al usuario es un asiento POSITIVO y el
+      // ingreso de la casa es NEGATIVO. La suma sigue siendo cero.
+      if (rake > 0n) {
+        await this.post(client, {
+          postingKey: `round:${roundId}:settle`,
+          memo: `cierre de la partida ${roundId}`,
+          entries: [
+            { accountId: user, amount: rake },
+            { accountId: revenue, amount: -rake },
+          ],
+        });
+      }
+
+      await client.query(
+        `UPDATE reservations SET status='consumed', closed_at=now() WHERE id=$1`,
+        [round.reservation_id]
+      );
+      await client.query(
+        `UPDATE rounds SET status='settled', winner_user_id=$2, settled_at=now() WHERE id=$1`,
+        [roundId, won ? winnerUserId : null]
+      );
+
+      await this.enqueue(client, {
+        topic: "round.settled",
+        dedupeKey: `round.settled:${roundId}`,
+        payload: { roundId, winnerUserId: won ? winnerUserId : null, held: held.toString(), credit: credit.toString() },
+      });
+
+      return {
+        roundId,
+        won,
+        entry: held.toString(),
+        credit: credit.toString(),
+        rake: rake.toString(),
+        players: count,
+      };
+    });
+  }
+
+  // Cancela una partida y devuelve la entrada al anfitrión.
+  async cancelRound({ roundId }) {
+    return this.transaction(async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM rounds WHERE id=$1 AND project_id=$2 FOR UPDATE`,
+        [roundId, this.projectId]
+      );
+      const round = rows[0];
+      if (!round) fail("NO_ROUND", "la partida no existe");
+      if (round.status !== "open") fail("ROUND_CLOSED", "la partida ya está cerrada");
+      await client.query(
+        `UPDATE reservations SET status='released', closed_at=now() WHERE id=$1 AND status='held'`,
+        [round.reservation_id]
+      );
+      await client.query(`UPDATE rounds SET status='cancelled', settled_at=now() WHERE id=$1`, [roundId]);
+      return { cancelled: true, roundId };
     });
   }
 

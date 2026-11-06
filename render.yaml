@@ -10,7 +10,7 @@ services:
     runtime: node
     plan: free
     region: oregon
-    branch: main
+    branch: sistema-pagos-cuentas
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /health

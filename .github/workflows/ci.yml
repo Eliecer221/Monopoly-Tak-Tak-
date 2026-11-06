@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, sistema-pagos-cuentas]
   pull_request:
 
 jobs:
@@ -51,3 +51,5 @@ jobs:
         run: npm run test:ledger
       - name: Pruebas del servidor con el libro contable
         run: npm run test:ledger:server
+      - name: Pruebas de partidas con entrada (custodia y anti-trampa)
+        run: npm run test:rounds

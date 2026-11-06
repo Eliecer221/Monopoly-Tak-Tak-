@@ -213,3 +213,29 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 CREATE INDEX IF NOT EXISTS audit_log_idx ON audit_log (project_id, created_at DESC);
+
+-- ---------- partidas con entrada de pago ----------
+-- El servidor fija las reglas al abrir la partida (entrada, jugadores, comisión)
+-- y el servidor las vuelve a comprobar al cerrarla. El cliente no decide ni
+-- cuánto se juega ni quién gana.
+CREATE TABLE IF NOT EXISTS rounds (
+  id              text PRIMARY KEY,
+  project_id      text NOT NULL,
+  host_user_id    text NOT NULL,
+  buy_in          bigint NOT NULL CHECK (buy_in > 0),
+  max_players     integer NOT NULL CHECK (max_players BETWEEN 2 AND 8),
+  winner_share_pct integer NOT NULL CHECK (winner_share_pct BETWEEN 0 AND 100),
+  status          text NOT NULL DEFAULT 'open' CHECK (status IN ('open','settled','cancelled')),
+  reservation_id  bigint REFERENCES reservations(id) ON DELETE RESTRICT,
+  winner_user_id  text,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  settled_at      timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS rounds_host_idx ON rounds (project_id, host_user_id, created_at DESC);
+
+-- ---------- topes de retiro ----------
+-- El tope se calcula sumando los retiros ya pedidos en cada ventana, así que no
+-- hace falta mantener contadores que se puedan desincronizar.
+CREATE INDEX IF NOT EXISTS withdrawals_user_idx
+  ON withdrawals (project_id, user_id, created_at DESC);

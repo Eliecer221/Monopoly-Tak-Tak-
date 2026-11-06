@@ -73,28 +73,35 @@ export class FinancialPolicy {
     return { allowed: true };
   }
 
-  // Límites de retiro sobre lo retirado en la ventana.
-  async checkLimits({ actor, amount }) {
-    const since = (ms) => new Date(Date.now() - ms).toISOString();
-    const { rows } = { rows: await this.db
-      .collection("withdrawals")
-      .find({ userId: actor.id })
-      .toArray() };
+  // Límites de retiro sobre lo retirado en la ventana. Cuando hay libro
+  // contable, la suma sale de sus retiros, que sí llevan importe. La versión de
+  // Mongo solo se usa si el libro no está configurado.
+  async checkLimits({ actor, amount, ledger = null }) {
+    let day, week, month;
 
-    const sum = (fromIso) =>
-      rows
-        .filter((w) => w.at >= fromIso && w.status !== "rejected")
-        .reduce((s, w) => s + (w.amount || 0), 0);
+    if (ledger) {
+      const totals = await ledger.withdrawalTotals(actor.id);
+      day = Number(totals.day);
+      week = Number(totals.week);
+      month = Number(totals.month);
+    } else {
+      const rows = await this.db.collection("withdrawals").find({ userId: actor.id }).toArray();
+      const sum = (fromIso) =>
+        rows
+          .filter((w) => (w.at || w.createdAt || "") >= fromIso && w.status !== "rejected")
+          .reduce((s, w) => s + (w.gross || w.amount || 0), 0);
+      const since = (ms) => new Date(Date.now() - ms).toISOString();
+      day = sum(since(864e5));
+      week = sum(since(7 * 864e5));
+      month = sum(since(30 * 864e5));
+    }
 
-    const day = sum(since(864e5));
     if (day + amount > WITHDRAWAL_LIMITS.dailyUnits) {
       deny("LIMIT_DAILY", `superas el límite diario de retiro (${WITHDRAWAL_LIMITS.dailyUnits})`);
     }
-    const week = sum(since(7 * 864e5));
     if (week + amount > WITHDRAWAL_LIMITS.weeklyUnits) {
       deny("LIMIT_WEEKLY", `superas el límite semanal de retiro (${WITHDRAWAL_LIMITS.weeklyUnits})`);
     }
-    const month = sum(since(30 * 864e5));
     if (month + amount > WITHDRAWAL_LIMITS.monthlyUnits) {
       deny("LIMIT_MONTHLY", `superas el límite mensual de retiro (${WITHDRAWAL_LIMITS.monthlyUnits})`);
     }
