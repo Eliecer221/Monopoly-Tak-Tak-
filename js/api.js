@@ -87,6 +87,25 @@ export function fetchOrders() {
   return request("/api/store/orders");
 }
 
+// ---------- PayPal (pago manual) ----------
+export function paypalQuote() {
+  return request("/api/paypal/quote");
+}
+
+export function paypalOrder({ productId }) {
+  return request("/api/paypal/order", {
+    method: "POST",
+    body: JSON.stringify({ productId }),
+  });
+}
+
+export function paypalReceipt({ orderId, image, reference }) {
+  return request("/api/paypal/receipt", {
+    method: "POST",
+    body: JSON.stringify({ orderId, image, reference }),
+  });
+}
+
 // ---------- GLENIS: la asistente de pagos ----------
 export function glenisStatus() {
   return request("/api/glenis/status");

@@ -313,7 +313,7 @@ export class ReceiptValidator {
 
   // Analiza el comprobante y devuelve un veredicto. No acredita nada: eso lo
   // hace la tienda solo cuando el veredicto es "approved".
-  async review({ order, image, declaredReference, user, attemptsToday = 0 }) {
+  async review({ order, image, declaredReference, user, attemptsToday = 0, receiver = null }) {
     const imageHash = sha256(image);
 
     // Regla 1: el mismo comprobante no se acepta dos veces.
@@ -340,7 +340,10 @@ export class ReceiptValidator {
       }
     }
 
-    const config = {
+    // El destinatario esperado depende del proveedor: Zinli usa correo y
+    // teléfono; PayPal, el correo de cobro. El llamador puede pasarlo ya
+    // resuelto; si no, se usa la configuración de Zinli.
+    const config = receiver || {
       receiverEmail: this.env.ZINLI_RECEIVER_EMAIL || "",
       receiverPhone: this.env.ZINLI_RECEIVER_PHONE || "",
     };

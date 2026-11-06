@@ -31,6 +31,7 @@ import { Store, catalog, productById } from "./store.mjs";
 import { Kyc, checkPurchaseAllowed, selfExclude, limitsFor } from "./kyc.mjs";
 import { ReceiptValidator } from "./ai-receipts.mjs";
 import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinliPayTo, POT_WINNER_SHARE } from "./zinli.mjs";
+import { paypalPayTo, paypalConfigured } from "./paypal.mjs";
 import { verifyTotp } from "./totp.mjs";
 import { createPool, migrate, LedgerRepository } from "./ledger.mjs";
 import { OutboxWorker } from "./outbox-worker.mjs";
@@ -312,6 +313,7 @@ export function createServer({
         accounts: Boolean(database || uri),
         memory: Boolean(database && !uri),
         payments: { stripe: pay.stripe, mercadopago: pay.mercadopago },
+        paypal: paypalConfigured(env),
         zinli: zinliConfigured(env),
         aiReceipts: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY),
         ledger: Boolean(ledgerRepo),
@@ -520,7 +522,13 @@ export function createServer({
 
     // ---------- tienda ----------
     if (pathname === "/api/store/catalog" && req.method === "GET") {
-      return send(res, 200, { products: catalog(), payments: paymentsConfigured(env) });
+      const pay = paymentsConfigured(env);
+      return send(res, 200, {
+        products: catalog(),
+        // Solo PayPal está activo como método de pago. Se informa igual que
+        // Stripe y MercadoPago para que la tienda sepa qué mostrar.
+        payments: { paypal: paypalConfigured(env), stripe: pay.stripe, mercadopago: pay.mercadopago },
+      });
     }
 
     if (pathname === "/api/store/checkout" && req.method === "POST") {
@@ -792,6 +800,86 @@ export function createServer({
           score: review.score,
           reasons,
           detail: { provider: validator.provider?.name || null },
+        });
+      }
+      return send(res, 200, { verdict, score: review.score, reasons });
+    }
+
+    // ---------- compra de monedas por PayPal (pago manual) ----------
+    if (pathname === "/api/paypal/quote" && req.method === "GET") {
+      return send(res, 200, { pay: paypalPayTo(env), configured: paypalConfigured(env) });
+    }
+
+    if (pathname === "/api/paypal/order" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const product = productById(parsed.value?.productId);
+      if (!product) return send(res, 400, { error: "producto desconocido" });
+      if (!paypalConfigured(env)) return send(res, 502, { error: "PayPal no está configurado" });
+      const allowed = checkPurchaseAllowed(session.user, product.priceCents);
+      if (allowed.error) return send(res, 403, { error: allowed.error });
+      const s = await shop();
+      const order = await s.createOrder(session.user, product, "paypal");
+      return send(res, 201, {
+        orderId: order.id,
+        amountCents: order.amountCents,
+        pay: paypalPayTo(env),
+      });
+    }
+
+    if (pathname === "/api/paypal/receipt" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const { orderId, image, reference } = parsed.value || {};
+      if (!image || !String(image).startsWith("data:image/")) {
+        return send(res, 400, { error: "sube una captura del comprobante" });
+      }
+      const s = await shop();
+      const order = await s.getOrder(orderId);
+      if (!order || order.userId !== session.user.id) return send(res, 404, { error: "orden desconocida" });
+      if (order.status === "paid") return send(res, 200, { verdict: "approved", alreadyPaid: true });
+      const validator = await receipts();
+      if (!validator) return send(res, 503, { error: "validación no configurada" });
+      const attemptsToday = await (await getDb()).collection("receipts").countDocuments({
+        userId: session.user.id,
+        at: { $gte: new Date(Date.now() - 864e5).toISOString() },
+      });
+      const review = await validator.review({
+        order,
+        image,
+        declaredReference: reference,
+        user: session.user,
+        attemptsToday,
+        receiver: { receiverEmail: paypalPayTo(env).email, receiverPhone: "" },
+      });
+
+      // GLENIS deja de aprobar sola cuando el usuario ya aprobó varias hoy:
+      // una racha de comprobantes seguidos es señal de abuso.
+      let verdict = review.verdict;
+      let reasons = review.reasons;
+      const log = await glenisLog();
+      if (verdict === "approved" && attemptsToday >= GLENIS_MAX_AUTO_APPROVALS_PER_DAY) {
+        verdict = "manual_review";
+        reasons = [...reasons, `${GLENIS_NAME}: pasó el límite de aprobaciones automáticas del día`];
+      }
+
+      if (verdict === "approved") {
+        const credited = await s.creditOrder(order.id, `paypal:${review.imageHash.slice(0, 16)}`);
+        await mintOrderCoins(order, credited);
+      }
+      if (log) {
+        await log.record({
+          actor: GLENIS_NAME,
+          action: "receipt.review",
+          target: order.id,
+          decision: verdict,
+          score: review.score,
+          reasons,
+          detail: { provider: validator.provider?.name || null, channel: "paypal" },
         });
       }
       return send(res, 200, { verdict, score: review.score, reasons });

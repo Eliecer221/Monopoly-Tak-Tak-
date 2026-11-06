@@ -1,11 +1,11 @@
 // Interfaz de cuentas y tienda con pagos reales.
 // El juego es gratis; aquí el jugador crea su cuenta y compra monedas, dados,
-// gemas o el pase de temporada. El cobro lo hace Stripe o MercadoPago.
+// gemas o el pase de temporada. El cobro se hace por PayPal (pago manual con
+// comprobante); Stripe y MercadoPago siguen disponibles en el servidor.
 
-import { el, fmt } from "./utils.js";
+import { el, fmt, readImageAsDataUrl } from "./utils.js";
 import {
   apiEnabled,
-  checkout,
   fetchCatalog,
   fetchTransactions,
   getToken,
@@ -17,6 +17,9 @@ import {
   login,
   logout,
   me,
+  paypalOrder,
+  paypalQuote,
+  paypalReceipt,
   setToken,
   signup,
 } from "./api.js";
@@ -25,7 +28,7 @@ export class AccountUI {
   constructor() {
     this.user = null;
     this.catalog = [];
-    this.payments = { stripe: false, mercadopago: false };
+    this.payments = { paypal: false, stripe: false, mercadopago: false };
     this.bind();
     if (apiEnabled() && getToken()) this.refresh();
   }
@@ -260,17 +263,11 @@ export class AccountUI {
         el("div", { class: "shop-price", text: `$${(p.priceCents / 100).toFixed(2)}` }),
       ]);
       const actions = el("div", { class: "shop-actions" });
-      if (this.payments.stripe) {
-        const b = el("button", { class: "primary-btn small", type: "button", text: "Tarjeta" });
-        b.addEventListener("click", () => this.buy(p, "stripe"));
+      if (this.payments.paypal) {
+        const b = el("button", { class: "primary-btn small", type: "button", text: "PayPal" });
+        b.addEventListener("click", () => this.openPaypal(p));
         actions.append(b);
-      }
-      if (this.payments.mercadopago) {
-        const b = el("button", { class: "ghost-btn small", type: "button", text: "MercadoPago" });
-        b.addEventListener("click", () => this.buy(p, "mercadopago"));
-        actions.append(b);
-      }
-      if (!actions.children.length) {
+      } else {
         actions.append(el("span", { class: "shop-off", text: "Pago no disponible" }));
       }
       card.append(actions);
@@ -280,6 +277,96 @@ export class AccountUI {
 
     box.append(el("p", { class: "modal-sub legal", text: "Compra productos digitales para el juego. No es una apuesta: no se paga para apostar ni hay premio en metálico." }));
     this.renderHistory(box);
+  }
+
+  // ---------- PayPal: pago manual ----------
+  // La app muestra el correo de cobro; el usuario paga desde su cuenta de PayPal
+  // y sube el comprobante. Las monedas se acreditan al validarse el comprobante.
+  // El correo se muestra ANTES de crear la orden para que el usuario siempre
+  // sepa a dónde pagar, aunque todavía no pueda comprar (KYC, límites).
+  async openPaypal(product) {
+    const box = document.getElementById("store-content");
+    box.innerHTML = "";
+    box.append(
+      el("h2", { class: "modal-title", text: "Pagar con PayPal" }),
+      el("p", { class: "modal-sub", text: `${product.name} · $${(product.priceCents / 100).toFixed(2)}` })
+    );
+
+    let pay = {};
+    try {
+      const quote = await paypalQuote();
+      pay = quote.pay || {};
+    } catch {
+      pay = {};
+    }
+    const amount = `$${(product.priceCents / 100).toFixed(2)}`;
+    box.append(
+      el("div", { class: "pay-box" }, [
+        el("span", { class: "pay-label", text: "Correo de PayPal para el pago" }),
+        el("span", { class: "pay-email", text: pay.email || "" }),
+        el("span", { class: "pay-amount", text: `Monto exacto: ${amount}` }),
+        el("span", { class: "pay-note", text: pay.note || "Envía el monto exacto y sube el comprobante." }),
+      ])
+    );
+
+    const file = el("input", { type: "file", accept: "image/*" });
+    const ref = el("input", { type: "text", placeholder: "Referencia o número de transacción (opcional)" });
+    const send = el("button", { class: "primary-btn", type: "button", text: "Ya pagué, subir comprobante" });
+    const status = el("p", { class: "modal-note", text: "" });
+
+    send.addEventListener("click", async () => {
+      const f = file.files?.[0];
+      if (!f) {
+        status.textContent = "Adjunta una captura del comprobante de PayPal.";
+        status.className = "auth-error";
+        return;
+      }
+      send.disabled = true;
+      status.className = "modal-note";
+      status.textContent = "Revisando el comprobante…";
+      try {
+        const image = await readImageAsDataUrl(f);
+        const order = await paypalOrder({ productId: product.id });
+        const res = await paypalReceipt({ orderId: order.orderId, image, reference: ref.value });
+        if (res.verdict === "approved") {
+          await this.refresh();
+          box.innerHTML = "";
+          box.append(
+            el("h2", { class: "modal-title", text: "¡Pago acreditado!" }),
+            el("p", { class: "modal-sub", text: `${product.name} ya está en tu cartera.` }),
+            this.backToStoreButton()
+          );
+        } else if (res.verdict === "manual_review") {
+          status.className = "modal-note";
+          status.textContent = "Tu comprobante quedó en revisión. GLENIS lo confirma en breve.";
+          send.disabled = false;
+        } else {
+          status.className = "auth-error";
+          status.textContent = `No se pudo validar: ${(res.reasons || []).join("; ") || "comprobante no reconocido"}`;
+          send.disabled = false;
+        }
+      } catch (err) {
+        status.className = "auth-error";
+        status.textContent = err.message || "No se pudo enviar el comprobante";
+        send.disabled = false;
+      }
+    });
+
+    box.append(
+      el("div", { class: "pay-form" }, [
+        el("label", { class: "field" }, [el("span", { text: "Comprobante" }), file]),
+        el("label", { class: "field" }, [el("span", { text: "Referencia" }), ref]),
+        send,
+        status,
+      ]),
+      this.backToStoreButton()
+    );
+  }
+
+  backToStoreButton() {
+    const back = el("button", { class: "ghost-btn", type: "button", text: "Volver a la tienda" });
+    back.addEventListener("click", () => this.openStore());
+    return el("div", { class: "modal-actions" }, [back]);
   }
 
   kindIcon(kind) {
@@ -306,18 +393,6 @@ export class AccountUI {
       );
     }
     box.append(el("h3", { class: "modal-sub", text: "Tus compras" }), table);
-  }
-
-  async buy(product, provider) {
-    try {
-      this.toast("Abriendo la pasarela de pago…");
-      const data = await checkout({ productId: product.id, provider });
-      // El cobro ocurre en el proveedor; el saldo se acredita al confirmarse
-      // el pago por webhook, no al volver a esta página.
-      window.location.href = data.url;
-    } catch (err) {
-      this.toast(err.message || "No se pudo iniciar el pago");
-    }
   }
 
   // ---------- GLENIS: consola del administrador ----------

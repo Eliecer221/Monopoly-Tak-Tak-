@@ -32,3 +32,9 @@ services:
         sync: false
       - key: MERCADOPAGO_WEBHOOK_SECRET
         sync: false
+      # PayPal: pago manual. El correo de cobro se muestra al pagador, así que
+      # puede ir como valor fijo; es un correo, no un secreto.
+      - key: PAYPAL_RECEIVER_EMAIL
+        value: taktak.messenger@gmail.com
+      - key: PAYPAL_RECEIVER_NAME
+        value: Monopoly Tak Tak

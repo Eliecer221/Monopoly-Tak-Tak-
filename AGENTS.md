@@ -25,6 +25,8 @@ dependencias de ejecución.
 - `server/auth.mjs` — cuentas: contraseñas con scrypt y sal por usuario, sesiones.
 - `server/store.mjs` — catálogo, órdenes y acreditación de compras.
 - `server/payments.mjs` — Stripe y MercadoPago: checkout y verificación de firmas.
+- `server/paypal.mjs` — PayPal como pago manual: correo de cobro de la
+  plataforma, visible al pagador. No guarda claves: es un correo, no un secreto.
 - `server/db.mjs` — capa de datos: MongoDB o memoria (`TAKTAK_MEMORY_DB=1`).
 - `js/main.js` — configuración, guardado/carga y arranque.
 - `server/server.mjs` — servidor HTTP: juego, clasificación, cuentas y tienda.
@@ -64,6 +66,11 @@ npm run serve:static # solo el juego, sin backend
 - Sin claves de pasarela el checkout devuelve error. Nunca debe fingir un pago.
 - Las claves de Stripe y MercadoPago viven solo en el entorno. `render.yaml` las
   marca `sync: false`. No commitear ninguna.
+- **PayPal es pago manual**: el usuario paga al correo de cobro de la plataforma
+  (`PAYPAL_RECEIVER_EMAIL`) y sube el comprobante; GLENIS lo valida igual que el
+  de Zinli. El correo de cobro no es un secreto (se muestra al pagador), pero
+  tampoco se hardcodea en la interfaz: sale del servidor. La contraseña y el App
+  ID de PayPal no se usan en este flujo y no deben guardarse en el repositorio.
 - El modelo de negocio y los pasos de activación están en `MONETIZATION.md`.
 - La cadena de conexión de MongoDB llega por variable de entorno (`MONGODB_URI`).
   Nunca debe escribirse en el repositorio: `.env` está ignorado. El servidor

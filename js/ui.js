@@ -328,9 +328,7 @@ export class UI {
     totalEl.textContent = fmt(this.game.potTotal());
     const note = document.getElementById("pot-note");
     if (note) {
-      note.textContent = pot.buyIn
-        ? `Buy-in $${pot.buyIn} por jugador · simulado`
-        : "Simulado. Aquí no se juega dinero real.";
+      note.textContent = pot.buyIn ? `Buy-in $${pot.buyIn} por jugador` : "";
     }
   }
 
@@ -339,7 +337,7 @@ export class UI {
     const payout = document.getElementById("btn-payout");
     if (recharge) {
       recharge.addEventListener("click", () => {
-        const raw = prompt("¿Cuánto quieres recargar al bote? (dólares, solo simulado)", "5");
+        const raw = prompt("¿Cuánto quieres recargar al bote? (dólares)", "5");
         if (raw === null) return;
         const amount = Number(raw);
         if (!Number.isFinite(amount) || amount <= 0) {
@@ -348,7 +346,7 @@ export class UI {
         }
         this.game.contribute(amount);
         this.renderPot();
-        this.toast(`Bote recargado con $${amount} (simulado)`);
+        this.toast(`Bote recargado con $${amount}`);
       });
     }
     if (payout) {
@@ -783,7 +781,7 @@ export class UI {
           el("tr", {}, [el("td", { text: "Casa (40%)" }), el("td", { text: fmt(reparto.house) })]),
         ])
       );
-      content.append(el("p", { class: "modal-sub", text: "Reparto simulado: este juego no mueve dinero real." }));
+      content.append(el("p", { class: "modal-sub", text: "Reparto 60/40 del bote." }));
     }
 
     // Clasificación global: solo si el jugador humano ganó y hay backend.
