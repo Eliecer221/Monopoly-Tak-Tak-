@@ -595,6 +595,23 @@ button, .space {
 .ghost-btn.store { border-color: rgba(255, 210, 63, 0.5); color: #ffe27a; }
 .ghost-btn.glenis { border-color: rgba(120, 200, 255, 0.5); color: #9fdcff; }
 .ghost-btn.glenis:hover { background: rgba(120, 200, 255, 0.16); }
+.ghost-btn.glenis[hidden] { display: none; }
+.glenis-face { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; flex: 0 0 auto; }
+
+/* Cabecera de GLENIS: su rostro junto al nombre. */
+.glenis-head { display: flex; align-items: center; gap: 12px; }
+.glenis-portrait {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(120, 200, 255, 0.55);
+  box-shadow: 0 0 18px rgba(120, 200, 255, 0.22);
+  flex: 0 0 auto;
+}
+.glenis-head-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.glenis-name { font-size: 20px; font-weight: 700; letter-spacing: 0.02em; }
+.glenis-tag { font-size: 12px; color: var(--muted, #9aa7b4); }
 
 .modal.wide { max-width: 720px; width: 100%; }
 .auth-fields { display: grid; gap: 10px; margin: 12px 0; }

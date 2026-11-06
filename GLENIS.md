@@ -5,6 +5,9 @@ vigila los retiros. No es un adorno: es la que mira cada comprobante y arma el
 expediente de cada retiro. Pero **no paga sola lo irreversible**: eso lo decide
 el administrador.
 
+Su rostro está en `assets/glenis.jpg` (y en 128 y 64 px). Aparece en su botón y
+en la cabecera de su consola. Es la cara de la asistente, no una decoración.
+
 ## Qué hace y qué no
 
 | Tarea | GLENIS | El administrador |
@@ -26,6 +29,17 @@ GLENIS tiene dos trabajos, y cada uno necesita su clave:
    no acreditar.
 2. **Redactar (texto).** Aquí sirve `GROQ_API_KEY`. GLENIS escribe, en español
    claro, qué ve en cada expediente.
+
+### La clave de visión ya está probada
+
+Con `GEMINI_API_KEY` GLENIS **lee comprobantes de verdad**. Probado contra la API
+real: leyó el monto (10 USD), la moneda, la referencia y la fecha de un
+comprobante de prueba, y mandó el pago a revisión al ver que el destinatario no
+coincidía con los datos de la plataforma. Esa es la conducta correcta.
+
+Los modelos se piden por alias (`gemini-flash-latest`), nunca por nombre fijo:
+Google retira los fijos cada pocos meses y un nombre retirado deja a GLENIS ciega
+sin que nadie sepa por qué. Hay una prueba que lo impide.
 
 ### Aviso importante sobre la clave de Groq
 

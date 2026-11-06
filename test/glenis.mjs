@@ -15,7 +15,12 @@ import {
   explainWithdrawal,
   GLENIS_MAX_AUTO_APPROVALS_PER_DAY,
 } from "../server/glenis.mjs";
-import { visionProviderFromEnv, textProviderFromEnv, callGroqText } from "../server/ai-receipts.mjs";
+import {
+  visionProviderFromEnv,
+  textProviderFromEnv,
+  callGroqText,
+  GEMINI_MODELS,
+} from "../server/ai-receipts.mjs";
 import {
   validateSignup,
   parseAllowedDomains,
@@ -114,6 +119,24 @@ ok(
 ok(
   textProviderFromEnv({ GROQ_API_KEY: "gsk_x" })?.name === "groq",
   "Groq sí se usa para redactar"
+);
+ok(
+  visionProviderFromEnv({ GEMINI_API_KEY: "k" })?.name === "gemini",
+  "Gemini se usa para leer comprobantes"
+);
+
+// Google retira los nombres fijos de modelo cada pocos meses. Si alguien vuelve
+// a clavar uno retirado, GLENIS se queda sin leer comprobantes y todo va a
+// revisión manual sin que nadie sepa por qué.
+const RETIRED = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+ok(
+  GEMINI_MODELS.every((m) => !RETIRED.includes(m)),
+  "ningún modelo de Gemini retirado en la lista"
+);
+ok(GEMINI_MODELS.length >= 2, "hay más de un modelo de Gemini para reintentar");
+ok(
+  GEMINI_MODELS.some((m) => m.endsWith("-latest")),
+  "se usa al menos un alias vigente de Gemini"
 );
 
 // Sin proveedor de texto, GLENIS no se queda muda: usa las reglas.

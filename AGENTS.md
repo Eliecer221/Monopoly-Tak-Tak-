@@ -117,6 +117,12 @@ Reglas que no se negocian, porque cada una tapa un agujero que ya existió:
   como lector haría que GLENIS aprobara comprobantes sin leerlos. Hay una prueba
   (`test/glenis.mjs`) que lo impide. Sin clave de visión, todo va a revisión
   manual: eso es correcto, no un fallo.
+- **Gemini lee los comprobantes.** `GEMINI_API_KEY` (probada contra la API real
+  en `test/glenis-vision.mjs`, que se salta sin clave). Los modelos se piden por
+  alias `*-latest`, nunca por nombre fijo: Google retira los fijos cada pocos
+  meses y un nombre retirado deja a GLENIS ciega en silencio.
+- **El rostro de GLENIS vive en `assets/glenis.jpg`** (y 128/64 px). Se usa en su
+  botón y en su consola. No lo sustituyas por un emoji.
 - **El registro es solo con Gmail** (`ALLOWED_EMAIL_DOMAINS`). Las pruebas que
   registran usuarios deben permitir su dominio en su propio entorno.
 - **La cuenta madre** es `eliecerdepablos@gmail.com` y nace con rol `admin`. Es

@@ -209,11 +209,16 @@ export async function callGroqText({ prompt, apiKey, fetchImpl = fetch, model = 
   return { value: data?.choices?.[0]?.message?.content || "" };
 }
 
-async function callGemini({ image, apiKey, fetchImpl = fetch }) {
+// Google retira los nombres fijos de modelo cada pocos meses (gemini-1.5-flash y
+// gemini-2.5-flash ya no sirven para cuentas nuevas). Los alias "latest"
+// apuntan al modelo vigente y no hay que tocarlos.
+export const GEMINI_MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest", "gemini-3.8-flash"];
+
+async function callGeminiOnce({ image, apiKey, fetchImpl = fetch, model }) {
   const [meta, b64] = String(image).split(",");
   const mime = (meta.match(/data:(.*?);/) || [])[1] || "image/png";
   const res = await fetchImpl(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -228,6 +233,17 @@ async function callGemini({ image, apiKey, fetchImpl = fetch }) {
   if (!res.ok) return { error: data?.error?.message || "Gemini rechazó la petición" };
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   return { value: normalizeReading(parseModelJson(text)) };
+}
+
+// Prueba cada modelo en orden: si Google retiró el primero, sigue con el otro.
+async function callGemini(args) {
+  const errors = [];
+  for (const model of GEMINI_MODELS) {
+    const result = await callGeminiOnce({ ...args, model });
+    if (!result.error) return result;
+    errors.push(`${model}: ${result.error}`);
+  }
+  return { error: `ningún modelo de Gemini respondió (${errors.join(" | ")})` };
 }
 
 async function callAnthropic({ image, apiKey, fetchImpl = fetch }) {

@@ -192,7 +192,10 @@ export class AccountUI {
 
     const store = el("button", { class: "primary-btn", type: "button", text: "Ir a la tienda" });
     store.addEventListener("click", () => this.openStore());
-    const glenis = el("button", { class: "ghost-btn", type: "button", text: "🤖 GLENIS" });
+    const glenis = el("button", { class: "ghost-btn glenis", type: "button" }, [
+      el("img", { class: "glenis-face", src: "assets/glenis-64.jpg", alt: "", width: "24", height: "24" }),
+      "GLENIS",
+    ]);
     glenis.addEventListener("click", () => this.openGlenis());
     const out = el("button", { class: "ghost-btn", type: "button", text: "Cerrar sesión" });
     out.addEventListener("click", async () => {
@@ -365,11 +368,24 @@ export class AccountUI {
       );
     }
 
+    const portrait = el("img", {
+      class: "glenis-portrait",
+      src: "assets/glenis-128.jpg",
+      alt: "GLENIS, asistente de pagos",
+      width: "64",
+      height: "64",
+    });
     box.append(
-      el("h2", { class: "modal-title", text: "🤖 GLENIS" }),
+      el("div", { class: "glenis-head" }, [
+        portrait,
+        el("div", { class: "glenis-head-text" }, [
+          el("span", { class: "glenis-name", text: "GLENIS" }),
+          el("span", { class: "glenis-tag", text: "Asistente de pagos y control" }),
+        ]),
+      ]),
       el("p", {
         class: "modal-sub",
-        text: `Asistente de pagos y control. ${status.enabled ? "Encendida" : "Apagada"}: ${vision}, ${text}.`,
+        text: `${status.enabled ? "Encendida" : "Apagada"}: ${vision}, ${text}.`,
       }),
       el("p", {
         class: "modal-note",
