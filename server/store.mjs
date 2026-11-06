@@ -45,6 +45,11 @@ export function applyProduct(user, product) {
   return update;
 }
 
+// Registro de gasto que alimentan los límites diarios y semanales.
+export function spendEntry(order) {
+  return { at: new Date().toISOString(), amountCents: order.amountCents, orderId: order.id };
+}
+
 export class Store {
   constructor(db) {
     this.db = db;
@@ -90,7 +95,10 @@ export class Store {
     if (!user) return { error: "usuario desconocido" };
 
     const update = applyProduct(user, product);
-    await this.users.updateOne({ id: user.id }, { $set: update });
+    await this.users.updateOne(
+      { id: user.id },
+      { $set: update, $push: { spentLog: spendEntry(order) } }
+    );
     await this.orders.updateOne(
       { id: orderId },
       { $set: { status: "paid", paidAt: new Date().toISOString(), providerRef } }

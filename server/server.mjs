@@ -9,6 +9,7 @@
 // Ninguna credencial se guarda en el repositorio: todas llegan por entorno.
 // Sin MONGODB_URI el juego se sirve igual y las cuentas quedan desactivadas.
 
+import crypto from "node:crypto";
 import http from "node:http";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -17,6 +18,10 @@ import { MongoClient } from "mongodb";
 import { createMemoryDb, createMongoDb, ensureIndexes } from "./db.mjs";
 import { Accounts, publicUser } from "./auth.mjs";
 import { Store, catalog, productById } from "./store.mjs";
+import { Kyc, checkPurchaseAllowed, selfExclude, limitsFor } from "./kyc.mjs";
+import { ReceiptValidator } from "./ai-receipts.mjs";
+import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinliPayTo } from "./zinli.mjs";
+import { verifyTotp } from "./totp.mjs";
 import {
   PROVIDERS,
   createCheckout,
@@ -163,6 +168,21 @@ export function createServer({
     return d ? new Store(d) : null;
   }
 
+  async function kycService() {
+    const d = await getDb();
+    return d ? new Kyc(d) : null;
+  }
+
+  async function zinliService() {
+    const d = await getDb();
+    return d ? new Zinli(d) : null;
+  }
+
+  async function receipts() {
+    const d = await getDb();
+    return d ? new ReceiptValidator(d, { env, fetchImpl }) : null;
+  }
+
   function rateLimited(ip, limit = POSTS_PER_MINUTE) {
     const now = Date.now();
     const entry = hits.get(ip);
@@ -204,6 +224,8 @@ export function createServer({
         accounts: Boolean(database || uri),
         memory: Boolean(database && !uri),
         payments: { stripe: pay.stripe, mercadopago: pay.mercadopago },
+        zinli: zinliConfigured(env),
+        aiReceipts: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY),
       });
     }
 
@@ -378,6 +400,295 @@ export function createServer({
       const result = await s.creditOrder(orderId, String(payment.id));
       if (result.error) return send(res, 200, { ignored: true });
       return send(res, 200, { ok: true });
+    }
+
+    // ---------- verificación de correo y teléfono ----------
+    if (pathname === "/api/auth/verify/start" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const channel = parsed.value?.channel;
+      if (!["email", "phone"].includes(channel)) return send(res, 400, { error: "canal inválido" });
+      const result = await session.acc.startVerification(session.user, channel);
+      // En desarrollo el código se devuelve para poder probar; en producción se
+      // envía por correo o SMS y nunca se incluye en la respuesta.
+      const freshUser = (await getDb()).collection("users").findOne({ id: session.user.id });
+      const devCode = env.TAKTAK_DEV_CODES === "1" ? await freshUser : null;
+      if (env.TAKTAK_DEBUG === "1") console.log("DBG id:", session.user.id, "code:", devCode?.[`${channel}Code`], "keys:", Object.keys(devCode || {}).join(","));
+      return send(res, 200, {
+        ...result.value,
+        ...(env.TAKTAK_DEV_CODES === "1" ? { devCode: devCode?.[`${channel}Code`] } : {}),
+      });
+    }
+
+    if (pathname === "/api/auth/verify/confirm" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const { channel, code } = parsed.value || {};
+      if (!["email", "phone"].includes(channel)) return send(res, 400, { error: "canal inválido" });
+      const result = await session.acc.confirmVerification(session.user, channel, code);
+      if (result.error) return send(res, 400, { error: result.error });
+      const fresh = await (await accounts()).userForToken(session.token);
+      return send(res, 200, { ...result.value, user: publicUser(fresh) });
+    }
+
+    // ---------- 2FA ----------
+    if (pathname === "/api/auth/2fa/setup" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const result = await session.acc.setupTwoFactor(session.user);
+      return send(res, 200, result.value);
+    }
+
+    if (pathname === "/api/auth/2fa/enable" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const result = await session.acc.enableTwoFactor(session.user, parsed.value?.code);
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 200, result.value);
+    }
+
+    if (pathname === "/api/auth/2fa/disable" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const fresh = await (await accounts()).userForToken(session.token);
+      // Desactivar el 2FA exige un código válido: si no, una sesión robada
+      // podría quitarlo y quedarse con la cuenta.
+      if (fresh?.twoFactor?.enabled && !verifyTotp(fresh.twoFactor.secret, parsed.value?.code)) {
+        return send(res, 400, { error: "código de 2FA incorrecto" });
+      }
+      const result = await session.acc.disableTwoFactor(session.user);
+      return send(res, 200, result.value);
+    }
+
+    // ---------- KYC ----------
+    if (pathname === "/api/kyc/submit" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const svc = await kycService();
+      if (!svc) return send(res, 503, { error: "KYC no configurado" });
+      const result = await svc.submit(session.user, parsed.value);
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 201, result.value);
+    }
+
+    if (pathname === "/api/kyc/status" && req.method === "GET") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const fresh = await (await accounts()).userForToken(session.token);
+      return send(res, 200, { kyc: fresh.kyc || { status: "none" }, limits: limitsFor(fresh) });
+    }
+
+    if (pathname === "/api/kyc/decide" && req.method === "POST") {
+      // Solo el administrador decide. Se protege con ADMIN_TOKEN.
+      const token = req.headers["x-admin-token"];
+      if (!env.ADMIN_TOKEN || token !== env.ADMIN_TOKEN) {
+        return send(res, 403, { error: "no autorizado" });
+      }
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const svc = await kycService();
+      if (!svc) return send(res, 503, { error: "KYC no configurado" });
+      const result = await svc.decide(parsed.value?.userId, parsed.value?.status, parsed.value?.reason);
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 200, result.value);
+    }
+
+    // ---------- juego responsable ----------
+    if (pathname === "/api/responsible/self-exclude" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const update = selfExclude(session.user, parsed.value?.days);
+      await (await getDb()).collection("users").updateOne({ id: session.user.id }, update);
+      return send(res, 200, { selfExcludedUntil: update.$set.selfExcludedUntil });
+    }
+
+    // ---------- compra de monedas por Zinli ----------
+    if (pathname === "/api/zinli/quote" && req.method === "GET") {
+      return send(res, 200, { pay: zinliPayTo(env), configured: zinliConfigured(env) });
+    }
+
+    if (pathname === "/api/zinli/order" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const product = productById(parsed.value?.productId);
+      if (!product) return send(res, 400, { error: "producto desconocido" });
+      if (!zinliConfigured(env)) return send(res, 502, { error: "Zinli no está configurado" });
+      const allowed = checkPurchaseAllowed(session.user, product.priceCents);
+      if (allowed.error) return send(res, 403, { error: allowed.error });
+      const s = await shop();
+      const order = await s.createOrder(session.user, product, "zinli");
+      return send(res, 201, {
+        orderId: order.id,
+        amountCents: order.amountCents,
+        pay: zinliPayTo(env),
+      });
+    }
+
+    if (pathname === "/api/zinli/receipt" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const { orderId, image, reference } = parsed.value || {};
+      if (!image || !String(image).startsWith("data:image/")) {
+        return send(res, 400, { error: "sube una captura del comprobante" });
+      }
+      const s = await shop();
+      const order = await s.getOrder(orderId);
+      if (!order || order.userId !== session.user.id) return send(res, 404, { error: "orden desconocida" });
+      if (order.status === "paid") return send(res, 200, { verdict: "approved", alreadyPaid: true });
+      const validator = await receipts();
+      if (!validator) return send(res, 503, { error: "validación no configurada" });
+      const attemptsToday = await (await getDb()).collection("receipts").countDocuments({
+        userId: session.user.id,
+        at: { $gte: new Date(Date.now() - 864e5).toISOString() },
+      });
+      const review = await validator.review({ order, image, declaredReference: reference, user: session.user, attemptsToday });
+      if (review.verdict === "approved") {
+        await s.creditOrder(order.id, `zinli:${review.imageHash.slice(0, 16)}`);
+        return send(res, 200, { verdict: "approved", score: review.score, reasons: review.reasons });
+      }
+      return send(res, 200, { verdict: review.verdict, score: review.score, reasons: review.reasons });
+    }
+
+    // ---------- revisión manual de comprobantes (administrador) ----------
+    if (pathname === "/api/admin/receipts" && req.method === "GET") {
+      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
+        return send(res, 403, { error: "no autorizado" });
+      }
+      const d = await getDb();
+      const rows = await d
+        .collection("receipts")
+        .find({ verdict: "manual_review" })
+        .sort({ at: -1 })
+        .limit(50)
+        .toArray();
+      return send(res, 200, { receipts: rows.map(({ _id, ...r }) => r) });
+    }
+
+    if (pathname === "/api/admin/receipts/decide" && req.method === "POST") {
+      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
+        return send(res, 403, { error: "no autorizado" });
+      }
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const { orderId, approve } = parsed.value || {};
+      const s = await shop();
+      const order = await s.getOrder(orderId);
+      if (!order) return send(res, 404, { error: "orden desconocida" });
+      if (approve) await s.creditOrder(orderId, "manual:admin");
+      else await s.orders.updateOne({ id: orderId }, { $set: { status: "rejected" } });
+      return send(res, 200, { ok: true, status: approve ? "paid" : "rejected" });
+    }
+
+    // ---------- retiros por Zinli ----------
+    if (pathname === "/api/zinli/withdrawal" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const svc = await zinliService();
+      if (!svc) return send(res, 503, { error: "retiros no configurados" });
+      const result = await svc.requestWithdrawal(session.user, parsed.value?.coins);
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 201, result.value);
+    }
+
+    if (pathname === "/api/zinli/withdrawal/quote" && req.method === "GET") {
+      const result = withdrawalQuote(searchParams.get("coins"));
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 200, result.value);
+    }
+
+    if (pathname === "/api/zinli/withdrawals" && req.method === "GET") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const d = await getDb();
+      const rows = await d
+        .collection("withdrawals")
+        .find({ userId: session.user.id })
+        .sort({ at: -1 })
+        .limit(20)
+        .toArray();
+      return send(res, 200, { withdrawals: rows.map(({ _id, ...w }) => w) });
+    }
+
+    if (pathname === "/api/admin/withdrawals/decide" && req.method === "POST") {
+      if (!env.ADMIN_TOKEN || req.headers["x-admin-token"] !== env.ADMIN_TOKEN) {
+        return send(res, 403, { error: "no autorizado" });
+      }
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const svc = await zinliService();
+      const result = await svc.decide(parsed.value?.id, parsed.value?.status, parsed.value?.note);
+      if (result.error) return send(res, 400, { error: result.error });
+      return send(res, 200, result.value);
+    }
+
+    // ---------- bote de monedas de la partida ----------
+    if (pathname === "/api/pot/settle" && req.method === "POST") {
+      const session = await requireUser(req, res);
+      if (!session) return;
+      const parsed = await readBody(req);
+      if (parsed.error) return send(res, 400, { error: parsed.error });
+      const buyIn = validateBuyIn(parsed.value?.buyIn);
+      if (buyIn.error) return send(res, 400, { error: buyIn.error });
+      const players = Number(parsed.value?.players);
+      if (!Number.isInteger(players) || players < 2 || players > 8) {
+        return send(res, 400, { error: "la partida necesita de 2 a 8 jugadores" });
+      }
+      if (parsed.value?.winner !== true) {
+        return send(res, 400, { error: "solo el ganador liquida el bote" });
+      }
+      const pot = buyIn.value * players;
+      if ((session.user.wallet?.coins || 0) < buyIn.value) {
+        return send(res, 403, { error: "no tienes monedas para el buy-in" });
+      }
+      const { winner, house } = splitPot(pot);
+      const d = await getDb();
+      const fresh = await d.collection("users").findOne({ id: session.user.id });
+      await d.collection("users").updateOne(
+        { id: session.user.id },
+        {
+          $set: {
+            wallet: {
+              ...fresh.wallet,
+              coins: (fresh.wallet?.coins || 0) - buyIn.value + winner,
+            },
+            stats: {
+              ...(fresh.stats || {}),
+              gamesPlayed: (fresh.stats?.gamesPlayed || 0) + 1,
+              gamesWon: (fresh.stats?.gamesWon || 0) + 1,
+            },
+          },
+        }
+      );
+      await d.collection("transactions").insertOne({
+        id: crypto.randomUUID(),
+        userId: session.user.id,
+        kind: "pot",
+        buyIn: buyIn.value,
+        players,
+        pot,
+        winnerShare: winner,
+        houseShare: house,
+        at: new Date().toISOString(),
+      });
+      return send(res, 200, { pot, winner, house, players });
     }
 
     if (req.method === "GET" || req.method === "HEAD") return serveStatic(res, pathname);

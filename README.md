@@ -28,6 +28,11 @@ Sin dependencias de ejecución: abre `index.html` y juega.
 - **Tienda con pagos reales** (Stripe y MercadoPago): monedas, dados, gemas y pase
   de temporada. El modelo de negocio está en **[MONETIZATION.md](MONETIZATION.md)**.
 - **Clasificación global** de mejores partidas, guardada en MongoDB Atlas.
+- **Cuentas con verificación** de correo y teléfono, **2FA** (TOTP) y **KYC**
+  (documento + selfie) obligatorio antes de comprar.
+- **Monedas estilo TikTok**: se compran con dinero real por **Zinli**, con
+  **validación del comprobante por IA**, y el ganador puede **retirarlas**.
+- **Límites de compra** diarios y semanales, **autoexclusión** e historial completo.
 - Interfaz responsive con animaciones, registro de eventos y detalles de cada propiedad.
 
 ## 🚀 Cómo jugar
@@ -111,6 +116,7 @@ El servidor valida los datos, limita el tamaño de las peticiones y aplica un to
 | Magnate | Aparece cada 12 turnos con un deal; aceptar o rechazar tiene consecuencias |
 | Bote | Simulado: 60% ganador, 40% casa. No mueve dinero real |
 | Tienda | Compra real de monedas, dados, gemas y pase con Stripe o MercadoPago |
+| Monedas | Compra por Zinli con comprobante validado por IA; retiro al correo verificado |
 | Hipoteca | Recibes la mitad del precio; recuperar cuesta +10% |
 | Cárcel | Pagas $50, usas carta o sacas dobles; tras 3 turnos pagas |
 | Dobles | Repites turno; tres dobles seguidos te llevan a la cárcel |
@@ -126,6 +132,7 @@ npm run test:server # servidor y API de clasificación
 npm run test:ui     # interfaz sobre jsdom
 node test/integration.mjs   # interfaz + servidor + clasificación + pagos
 npm run test:store  # cuentas, tienda y firmas de webhook
+npm run test:platform  # 2FA, KYC, IA de comprobantes, retiros y bote
 ```
 
 La suite del motor juega 60 partidas completas con IA (verificando invariantes: dinero no
@@ -173,6 +180,8 @@ test/sim.mjs       Pruebas headless del motor
 test/server.mjs    Pruebas del servidor y la API
 test/ui.mjs        Pruebas de interfaz con jsdom
 test/store.mjs     Pruebas de cuentas, tienda y pagos
+test/platform.mjs  Pruebas de 2FA, KYC, IA de comprobantes, retiros y bote
+DOCUMENTO-APP.md   Documento completo: flujos, IA, seguridad y requisitos legales
 test/integration.mjs  Pruebas de integración de extremo a extremo
 MONETIZATION.md    Modelo de negocio: catálogo, precios y cómo cobrar
 ```
@@ -206,14 +215,21 @@ a los datos: las puntuaciones siguen en Atlas.
 
 ## ⚖️ Aviso legal
 
-La tienda **sí cobra dinero real** por contenido digital (monedas, dados, gemas y pase
-de temporada). Eso es comercio electrónico normal, no una apuesta.
+**Este sistema solo es legal si se opera con licencia oficial de juego, cumplimiento
+de KYC y AML y bajo las leyes del país correspondiente. Sin licencia es ilegal.**
 
-El **bote es una simulación**: el juego no cobra ni paga un bote con dinero real. Un
-bote real es juego/apuesta y necesita licencia de operador, KYC y AML. Ver
-[RULES.md](RULES.md), sección 5 y [MONETIZATION.md](MONETIZATION.md), sección 6.
+Un bote donde el jugador paga para entrar y el ganador cobra dinero real es
+**juego/apuesta con dinero real**. En Venezuela lo regula la Comisión Nacional de
+Casinos y operarlo sin licencia es delito. Además, las pasarelas cierran la cuenta al
+detectarlo.
 
-La temática es satírica y no es información periodística.
+El **bote del juego sigue siendo simulado**. El sistema de monedas, KYC, Zinli y
+retiros está implementado, pero **activarlo sin licencia es responsabilidad de quien
+opera**. Ver [DOCUMENTO-APP.md](DOCUMENTO-APP.md), sección 12, [RULES.md](RULES.md),
+sección 5 y [MONETIZATION.md](MONETIZATION.md), sección 6.
+
+La temática es satírica y no es información periodística. Juega con responsabilidad y
+solo si eres mayor de edad.
 
 ## 📄 Licencia
 
