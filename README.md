@@ -133,6 +133,9 @@ npm run test:ui     # interfaz sobre jsdom
 node test/integration.mjs   # interfaz + servidor + clasificación + pagos
 npm run test:store  # cuentas, tienda y firmas de webhook
 npm run test:platform  # 2FA, KYC, IA de comprobantes, retiros y bote
+npm run db:up          # PostgreSQL real en Docker (puerto 55432)
+npm run test:ledger    # libro contable con concurrencia real
+npm run test:payments  # Airtm, política y outbox
 ```
 
 La suite del motor juega 60 partidas completas con IA (verificando invariantes: dinero no
@@ -181,6 +184,8 @@ test/server.mjs    Pruebas del servidor y la API
 test/ui.mjs        Pruebas de interfaz con jsdom
 test/store.mjs     Pruebas de cuentas, tienda y pagos
 test/platform.mjs  Pruebas de 2FA, KYC, IA de comprobantes, retiros y bote
+test/ledger.mjs    Libro contable: concurrencia, idempotencia, conciliación
+test/payments-infra.mjs  Airtm, política de retiros y worker del outbox
 DOCUMENTO-APP.md   Documento completo: flujos, IA, seguridad y requisitos legales
 test/integration.mjs  Pruebas de integración de extremo a extremo
 MONETIZATION.md    Modelo de negocio: catálogo, precios y cómo cobrar
@@ -212,6 +217,15 @@ Si prefieres crearlo a mano: **New → Web Service**, conecta el repositorio y u
 En el plan gratuito la instancia se **duerme tras unos 15 minutos sin visitas**; la
 primera visita después tarda unos 30–60 segundos en responder. Es normal y no afecta
 a los datos: las puntuaciones siguen en Atlas.
+
+## 🧾 Dinero real: qué hay y qué falta
+
+El motor contable está implementado y probado contra **PostgreSQL real**: partida
+doble, sin doble gasto, idempotente, con outbox y conciliación. Lo que **no** hay
+es la integración con Airtm ni el bote con apuestas, y no por falta de código.
+
+El detalle completo está en [DINERO-REAL.md](DINERO-REAL.md). El resumen: sin
+licencia de juego y sin el producto de Airtm contratado, esto no se enciende.
 
 ## ⚖️ Aviso legal
 

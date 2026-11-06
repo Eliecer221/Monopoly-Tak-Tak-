@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: taktak-pg
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devpass}
+      POSTGRES_DB: ${POSTGRES_DB:-taktak}
+    ports:
+      - "${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - taktak-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ${POSTGRES_DB:-taktak}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  taktak-pg-data:

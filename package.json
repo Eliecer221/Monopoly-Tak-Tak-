@@ -12,14 +12,26 @@
     "test:ui": "node test/ui.mjs",
     "test:server": "node test/server.mjs",
     "test:store": "node test/store.mjs",
-    "test:platform": "node test/platform.mjs"
+    "test:platform": "node test/platform.mjs",
+    "test:ledger": "node test/ledger.mjs",
+    "test:payments": "node test/payments-infra.mjs",
+    "test:ledger:server": "node test/ledger-server.mjs",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:migrate": "node -e \"import('./server/ledger.mjs').then(async m=>{const p=m.createPool({connectionString:process.env.DATABASE_URL});await m.migrate(p);await p.end();console.log('esquema aplicado')})\""
   },
   "dependencies": {
-    "mongodb": "^6.10.0"
+    "mongodb": "^6.10.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "jsdom": "^25.0.1"
   },
-  "keywords": ["monopoly", "juego", "tablero", "tak-tak"],
+  "keywords": [
+    "monopoly",
+    "juego",
+    "tablero",
+    "tak-tak"
+  ],
   "license": "MIT"
 }

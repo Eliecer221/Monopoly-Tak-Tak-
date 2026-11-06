@@ -22,6 +22,10 @@ import { Kyc, checkPurchaseAllowed, selfExclude, limitsFor } from "./kyc.mjs";
 import { ReceiptValidator } from "./ai-receipts.mjs";
 import { Zinli, splitPot, validateBuyIn, withdrawalQuote, zinliConfigured, zinliPayTo } from "./zinli.mjs";
 import { verifyTotp } from "./totp.mjs";
+import { createPool, migrate, LedgerRepository } from "./ledger.mjs";
+import { OutboxWorker } from "./outbox-worker.mjs";
+import { FinancialPolicy } from "./policy.mjs";
+import { createAirtmProvider } from "./airtm.mjs";
 import {
   PROVIDERS,
   createCheckout,
@@ -129,14 +133,35 @@ export function createServer({
   db = null,
   env = process.env,
   fetchImpl = fetch,
+  ledger = null,
+  policy = null,
+  airtm = null,
 } = {}) {
   let client = null;
   let scores = store;
   const hits = new Map();
+
   // Modo de desarrollo: datos en memoria, se pierden al reiniciar. Sirve para
   // probar cuentas y tienda en local sin montar Atlas. Nunca en producción.
   let database =
     db || (env.TAKTAK_MEMORY_DB === "1" ? createMemoryDb() : null);
+
+  // Libro contable con PostgreSQL. Es opcional: sin DATABASE_URL el servidor
+  // arranca igual y las rutas de dinero responden 503.
+  let ledgerRepo = ledger;
+  let outboxWorker = null;
+  const ledgerPool = env.DATABASE_URL
+    ? createPool({ connectionString: env.DATABASE_URL, max: Number(env.DATABASE_POOL || 8) })
+    : null;
+  if (ledgerPool && !ledgerRepo) {
+    ledgerRepo = new LedgerRepository(ledgerPool, {
+      projectId: env.PROJECT_ID || "tak-tak",
+      assetId: env.COIN_SYMBOL || "MTC",
+    });
+  }
+  const financialPolicy =
+    policy || (database ? new FinancialPolicy(database, { adminToken: env.ADMIN_TOKEN }) : null);
+  const airtmProvider = airtm || createAirtmProvider(env);
 
   async function getDb() {
     if (database) return database;
@@ -226,7 +251,100 @@ export function createServer({
         payments: { stripe: pay.stripe, mercadopago: pay.mercadopago },
         zinli: zinliConfigured(env),
         aiReceipts: Boolean(env.OPENAI_API_KEY || env.GEMINI_API_KEY || env.ANTHROPIC_API_KEY),
+        ledger: Boolean(ledgerRepo),
+        airtm: { enabled: Boolean(airtmProvider?.enabled), mode: airtmProvider?.name || "desconocido" },
       });
+    }
+
+    // ---------- libro contable ----------
+    // Requieren DATABASE_URL. Sin él responden 503 y el juego sigue igual.
+    if (pathname.startsWith("/api/ledger/")) {
+      if (!ledgerRepo || !financialPolicy) {
+        return send(res, 503, { error: "libro contable no configurado" });
+      }
+
+      // Saldo del usuario según los asientos.
+      if (pathname === "/api/ledger/balance" && req.method === "GET") {
+        const session = await requireUser(req, res);
+        if (!session) return;
+        try {
+          const amount = await ledgerRepo.userBalance(session.user.id);
+          return send(res, 200, {
+            userId: session.user.id,
+            assetId: ledgerRepo.assetId,
+            amount: amount.toString(),
+          });
+        } catch (err) {
+          return send(res, 500, { error: err.message });
+        }
+      }
+
+      // Solicitud de retiro: política, límites, reserva e idempotencia.
+      if (pathname === "/api/ledger/withdraw" && req.method === "POST") {
+        const session = await requireUser(req, res);
+        if (!session) return;
+        const user = session.user;
+        const parsed = await readBody(req);
+        if (parsed.error) return send(res, 400, { error: parsed.error });
+        const body = parsed.value || {};
+
+        const idempotencyKey = String(body.idempotencyKey || "");
+        if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$/.test(idempotencyKey)) {
+          return send(res, 400, { error: "clave de idempotencia inválida" });
+        }
+        const destinationToken = String(body.destinationToken || "").trim();
+        if (destinationToken.length < 3 || destinationToken.length > 250) {
+          return send(res, 400, { error: "destino inválido" });
+        }
+        const amount = Number.parseInt(body.amount, 10);
+        if (!Number.isInteger(amount) || amount <= 0) {
+          return send(res, 400, { error: "importe inválido" });
+        }
+
+        try {
+          await financialPolicy.authorize({ actor: user, action: "withdraw" });
+          await financialPolicy.checkLimits({ actor: user, amount });
+          const result = await ledgerRepo.requestWithdrawalOnce({
+            userId: user.id,
+            amount,
+            fee: Number.parseInt(body.fee || "0", 10) || 0,
+            destinationToken,
+            idempotencyKey,
+          });
+          await ledgerRepo.audit({ actorId: user.id, action: "withdraw.request", target: result.withdrawalId });
+          return send(res, result.duplicate ? 200 : 201, result);
+        } catch (err) {
+          const code = err.code || "ERROR";
+          const status =
+            code === "INSUFFICIENT_FUNDS" ? 400 :
+            code === "UNAUTHENTICATED" ? 401 :
+            code.startsWith("LIMIT_") || code.includes("REQUIRED") || code === "SELF_EXCLUDED" ? 403 : 500;
+          return send(res, status, { error: err.message, code });
+        }
+      }
+
+      // Conciliación: solo administrador.
+      if (pathname === "/api/ledger/reconcile" && req.method === "POST") {
+        try {
+          financialPolicy.requireAdmin(req.headers["x-admin-token"]);
+        } catch (err) {
+          return send(res, 403, { error: err.message });
+        }
+        try {
+          const result = await ledgerRepo.reconcile();
+          await ledgerRepo.audit({ actorId: "admin", action: "reconcile", detail: { ok: result.ok } });
+          return send(res, 200, {
+            ...result,
+            ledgerTotal: result.ledgerTotal.toString(),
+            externalTotal: result.externalTotal.toString(),
+            difference: result.difference.toString(),
+          });
+        } catch (err) {
+          return send(res, 500, { error: err.message });
+        }
+      }
+
+      return send(res, 404, { error: "ruta del libro contable no encontrada" });
     }
 
     // ---------- clasificación ----------
@@ -695,7 +813,11 @@ export function createServer({
     return send(res, 405, { error: "método no permitido" });
   });
 
-  server.on("close", () => client?.close().catch(() => {}));
+  server.on("close", () => {
+    client?.close().catch(() => {});
+    outboxWorker?.stop();
+    if (ledgerPool && !ledger) ledgerPool.end().catch(() => {});
+  });
   return server;
 }
 
